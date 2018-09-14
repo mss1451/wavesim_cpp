@@ -10,8 +10,8 @@ This is an Eclipse CDT project but it can be compiled by using _make_. The follo
 7. libgdk-pixbuf2.0-dev
 It is also required to install the core packages such as libgtk-3-dev.
 ## Tested On
-- Linux Mint 19 Tara Cinnamon (64-bit)
-- Pardus 17.3 XFCE (64-bit)
+- Linux Mint 19 Tara - Cinnamon (64-bit)
+- Pardus 17.3 - XFCE (64-bit)
 ## Building
 With a terminal, enter either the **Release** or **Debug** directories depending on which version of the program you want to build. Let's build a **Release** version.
 
@@ -29,6 +29,8 @@ Build now.
 
 After a successful build, there should be the executable with the name **wavesim_cpp**.
 ## Running
+There is a 64-bit executable inside the **binary** directory which can be run directly. Move it to the upper directory where the **data** folder exists and run it or, if you have just built from the source, do the following.
+
 Move the executable from either the **Release** or **Debug** directory to the upper directory where the **data** folder exists. The program simply needs the **data** on its working directory so you can also move the folder to the executable directory instead. Let's move the exectuable from **Release** to the upper directory.
 
 Enter the **Release** directory.
