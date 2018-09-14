@@ -809,7 +809,7 @@ bool WaveEngine::calculateForces(const unsigned int firstIndex,
 		// Reduce the potential energy. The potential energy for this model is 0.5 times height difference squared.
 		// With this equation, we can derive the height for the reduced potential energy.
 		double potential_energy = (0.5 * pow(height_difference, 2.0));
-		// Multiply the energy with one minus loss ratio and find the height difference for that potential energy.
+		// Multiply the energy with one minus loss ratio and find the height for that potential energy.
 		// Leaving the height difference on the left side results in the following.
 		vd[index] += sqrt(2 * potential_energy * (1.0 - vdl[index])) * sgn(height_difference) - height_difference;
 	}
