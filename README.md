@@ -48,8 +48,6 @@ Enter the upper directory.
 Run the program.
 
 ```./wavesim_cpp```
-## Contributing
-Feel free to contribute and communicate.
 ## Authors
 Mustafa Sami Salt
 ## Licence
