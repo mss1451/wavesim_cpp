@@ -804,14 +804,16 @@ bool WaveEngine::calculateForces(const unsigned int firstIndex,
 		double kinetic_energy = (0.5 * vdm[index] * pow(vdv[index], 2));
 		// Multiply the energy with one minus loss ratio and find the velocity for that kinetic energy.
 		// Leaving the velocity on the left side results in the following.
-		vdv[index] = sqrt(2 * kinetic_energy * (1.0 - vdl[index]) / vdm[index]) * sgn(vdv[index]);
+		vdv[index] = sqrt(2 * kinetic_energy * (1.0 - vdl[index]) / vdm[index])
+				* sgn(vdv[index]);
 
 		// Reduce the potential energy. The potential energy for this model is 0.5 times height difference squared.
 		// With this equation, we can derive the height for the reduced potential energy.
 		double potential_energy = (0.5 * pow(height_difference, 2.0));
 		// Multiply the energy with one minus loss ratio and find the height for that potential energy.
 		// Leaving the height difference on the left side results in the following.
-		vd[index] += sqrt(2 * potential_energy * (1.0 - vdl[index])) * sgn(height_difference) - height_difference;
+		vd[index] += sqrt(2 * potential_energy * (1.0 - vdl[index]))
+				* sgn(height_difference) - height_difference;
 	}
 
 	// Process oscillators
