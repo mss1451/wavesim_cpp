@@ -51,7 +51,5 @@ Run the program.
 ```./wavesim_cpp```
 ## Authors
 Mustafa Sami Salt
-## Licence
-[CPOL Licence](https://www.codeproject.com/info/cpol10.aspx)
 ## Acknowledgments
 INI file reader provided from https://github.com/benhoyt/inih.
