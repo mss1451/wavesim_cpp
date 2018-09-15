@@ -8,7 +8,7 @@ This is an Eclipse CDT project but it can be compiled by using _make_. The follo
 5. libpangomm-1.4-dev
 6. libatkmm-1.6-dev
 7. libgdk-pixbuf2.0-dev
-It is also required to install the core packages such as libgtk-3-dev.
+It is also required to install the core packages such as libgtk-3-dev. You need **pkg-config** installed for the compiler to resolve the include and library directories.
 ## Tested On
 - Linux Mint 19 Tara - Cinnamon (64-bit)
 - Pardus 17.3 - XFCE (64-bit)
