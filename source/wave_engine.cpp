@@ -1,5 +1,7 @@
 #include "wave_engine.h"
 
+using namespace std::chrono_literals;
+
 namespace WaveSimulation {
 
 WaveEngine::WaveEngine() {
@@ -15,18 +17,15 @@ WaveEngine::WaveEngine() {
 		vdm[i] = 1.0;
 
 	ctDone = (bool *) calloc(sizeof(bool), MAX_NUMBER_OF_THREADS);
-	coThreads = (pthread_t *) calloc(sizeof(pthread_t), MAX_NUMBER_OF_THREADS);
+	coThreads = (std::thread *) calloc(sizeof(std::thread),
+	MAX_NUMBER_OF_THREADS);
 	ctStruct = (coThreadStruct *) calloc(sizeof(coThreadStruct),
 	MAX_NUMBER_OF_THREADS);
-	mEndMutex = (pthread_mutex_t *) calloc(sizeof(pthread_mutex_t),
+	mEndMutex = (std::mutex *) calloc(sizeof(std::mutex),
 	MAX_NUMBER_OF_THREADS);
-	mEndCond = (pthread_cond_t *) calloc(sizeof(pthread_cond_t),
-	MAX_NUMBER_OF_THREADS);
-
-	for (int i = 0; i < MAX_NUMBER_OF_THREADS; i++) {
-		mEndMutex[i] = PTHREAD_MUTEX_INITIALIZER;
-		mEndCond[i] = PTHREAD_COND_INITIALIZER;
-	}
+	mEndCond = (std::condition_variable *) calloc(
+			sizeof(std::condition_variable),
+			MAX_NUMBER_OF_THREADS);
 
 	osc_active = (bool *) calloc(sizeof(bool), MAX_NUMBER_OF_OSCILLATORS);
 	osc_source = (OscillatorSource *) calloc(sizeof(OscillatorSource),
@@ -54,7 +53,7 @@ WaveEngine::WaveEngine() {
 
 	setPool(size);
 	setCoThreads(0);
-	pthread_create(&MainT, NULL, MainThreadFunc, this);
+	MainT = std::thread(MainThreadFunc, this);
 
 }
 
@@ -62,24 +61,24 @@ WaveEngine::~WaveEngine() {
 	disposing = true;
 	work_now = false;
 
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	sendOrderToCT(Destroy);
-	void * ret;
 	for (unsigned int i = 0; i < numOfThreads; i++)
-		pthread_join(coThreads[i], &ret);
-	pthread_mutex_unlock(&mutex);
+		if (coThreads[i].joinable())
+			coThreads[i].join();
+	mutex.unlock();
+	if (MainT.joinable())
+		MainT.join();
+	//pthread_mutex_destroy(&mutex);
 
-	pthread_join(MainT, &ret);
-	pthread_mutex_destroy(&mutex);
+	//for (int i = 0; i < MAX_NUMBER_OF_THREADS; i++) {
+	//	pthread_mutex_destroy(&mEndMutex[i]);
+	//	pthread_cond_destroy(&mEndCond[i]);
+	//}
+	//pthread_mutex_destroy(&mStartMutex);
+	//pthread_cond_destroy(&mStartCond);
 
-	for (int i = 0; i < MAX_NUMBER_OF_THREADS; i++) {
-		pthread_mutex_destroy(&mEndMutex[i]);
-		pthread_cond_destroy(&mEndCond[i]);
-	}
-	pthread_mutex_destroy(&mStartMutex);
-	pthread_cond_destroy(&mStartCond);
-
-	pthread_mutex_destroy(&mCout);
+	//pthread_mutex_destroy(&mCout);
 
 	free(mEndMutex);
 	free(mEndCond);
@@ -123,13 +122,14 @@ struct timespec ms_to_ts(double ms) {
 void WaveEngine::sendOrderToCT(coThreadMission order) {
 	ctMission = order;
 	for (unsigned int i = 0; i < numOfThreads; i++) {
-		pthread_mutex_lock(&mEndMutex[i]);
+		mEndMutex[i].lock();
 		ctDone[i] = false;
-		pthread_mutex_unlock(&mEndMutex[i]);
+		mEndMutex[i].unlock();
 	}
-	pthread_mutex_lock(&mStartMutex);
-	pthread_cond_broadcast(&mStartCond);
-	pthread_mutex_unlock(&mStartMutex);
+	mStartMutex.lock();
+
+	mStartCond.notify_all();
+	mStartMutex.unlock();
 }
 
 void WaveEngine::waitForCT() {
@@ -137,18 +137,19 @@ void WaveEngine::waitForCT() {
 	for (unsigned int i = 0; i < numOfThreads; i++) {
 		clock_gettime(CLOCK_REALTIME, &timeout);
 		timeout.tv_sec += 3;
-		pthread_mutex_lock(&mEndMutex[i]);
-		while (work_now && !ctDone[i]) {
+		//mEndMutex[i].lock();
+		{
+			std::unique_lock<std::mutex> unique_lock(mEndMutex[i]);
+			while (work_now && !ctDone[i]) {
 
-			//int x =
-			pthread_cond_timedwait(&mEndCond[i], &mEndMutex[i], &timeout);
-			timeout.tv_sec += 3;
+				mEndCond[i].wait_for(unique_lock, 3s);
 
-			//if (x != 0)
-			//	std::cout << "error on cond wait " << x
-			//			<< " on main (calc force)" << std::endl;
+				//pthread_cond_timedwait(&mEndCond[i], &mEndMutex[i], &timeout);
+				timeout.tv_sec += 3;
+
+			}
 		}
-		pthread_mutex_unlock(&mEndMutex[i]);
+		//mEndMutex[i].unlock();
 	}
 }
 
@@ -173,7 +174,7 @@ void * WaveEngine::MainThreadFunc(void * data) {
 								- ts_to_ms(time_start))
 								/ (1000.0 / waveEngine->IPS)))
 								> waveEngine->calcDone)) {
-					pthread_mutex_lock(&waveEngine->mutex);
+					waveEngine->mutex.lock();
 					waveEngine->sendOrderToCT(CalculateForces);
 
 					waveEngine->waitForCT();
@@ -189,7 +190,7 @@ void * WaveEngine::MainThreadFunc(void * data) {
 					waveEngine->calcCounter++;
 					if (calcNeeded > waveEngine->calcDone + 1)
 						waveEngine->calcDone = calcNeeded - 1;
-					pthread_mutex_unlock(&waveEngine->mutex);
+					waveEngine->mutex.unlock();
 
 				}
 
@@ -202,7 +203,7 @@ void * WaveEngine::MainThreadFunc(void * data) {
 								time_current) - ts_to_ms(time_start))
 								/ (1000.0 / waveEngine->FPS)))
 								> waveEngine->paintDone) {
-					pthread_mutex_lock(&waveEngine->mutex);
+					waveEngine->mutex.lock();
 					waveEngine->sendOrderToCT(CalculateColors);
 
 					waveEngine->waitForCT();
@@ -211,7 +212,7 @@ void * WaveEngine::MainThreadFunc(void * data) {
 					waveEngine->paintDone++;
 					if (paintNeeded > waveEngine->paintDone + 1)
 						waveEngine->paintDone = paintNeeded - 1;
-					pthread_mutex_unlock(&waveEngine->mutex);
+					waveEngine->mutex.unlock();
 
 					if (waveEngine->renderCallback != NULL)
 						(*waveEngine->renderCallback)(waveEngine->bitmap_data,
@@ -229,14 +230,14 @@ void * WaveEngine::MainThreadFunc(void * data) {
 					clock_gettime(CLOCK_MONOTONIC, &time_log_previous);
 					double perf_interval =
 							(double) waveEngine->performanceLogInterval;
-					pthread_mutex_lock(&waveEngine->mCout);
+					waveEngine->mCout.lock();
 					std::cout << "Iterations & Paints per second:	"
 							<< 1000.0 / (perf_interval / numOfCalcs) << "	"
 							<< 1000.0 / (perf_interval / numOfPaints)
 							<< std::endl;
 					numOfCalcs = 0;
 					numOfPaints = 0;
-					pthread_mutex_unlock(&waveEngine->mCout);
+					waveEngine->mCout.unlock();
 
 				}
 			}
@@ -247,18 +248,22 @@ void * WaveEngine::MainThreadFunc(void * data) {
 					|| (waveEngine->renderEnabled
 							&& waveEngine->paintDone < paintNeeded)) {
 				// In a hurry
-				usleep(0);
+				std::this_thread::yield();
 			} else {
+				waveEngine->mutex.lock();
 				waveEngine->sendOrderToCT(Pause);
+				waveEngine->mutex.unlock();
 				if (waveEngine->powerSaveMode)
-					usleep(waveEngine->TDelay * 1E3);
-				else
-					usleep(0);
+					std::this_thread::sleep_for(
+							std::chrono::milliseconds(waveEngine->TDelay));
+				//else
+				//std::this_thread::yield();
 			}
 
 		}
 
-		usleep(waveEngine->TDelay * 1E3);
+		std::this_thread::sleep_for(
+				std::chrono::milliseconds(waveEngine->TDelay));
 	}
 	return 0;
 }
@@ -272,9 +277,9 @@ bool WaveEngine::getOscillatorEnabled(unsigned int oscillatorId) {
 }
 void WaveEngine::setOscillatorEnabled(unsigned int oscillatorId, bool enabled) {
 	if (oscillatorId < MAX_NUMBER_OF_OSCILLATORS) {
-		pthread_mutex_lock(&mutex);
+		mutex.lock();
 		osc_active[oscillatorId] = enabled;
-		pthread_mutex_unlock(&mutex);
+		mutex.unlock();
 	}
 }
 
@@ -287,10 +292,10 @@ OscillatorSource WaveEngine::getOscillatorSource(unsigned int oscillatorId) {
 void WaveEngine::setOscillatorSource(unsigned int oscillatorId,
 		OscillatorSource oscillatorSource) {
 	if (oscillatorId < MAX_NUMBER_OF_OSCILLATORS) {
-		pthread_mutex_lock(&mutex);
+		mutex.lock();
 		osc_source[oscillatorId] = oscillatorSource;
 		updateOscLocIndices(oscillatorId);
-		pthread_mutex_unlock(&mutex);
+		mutex.unlock();
 	}
 }
 
@@ -302,9 +307,9 @@ double WaveEngine::getOscillatorPeriod(unsigned int oscillatorId) {
 }
 void WaveEngine::setOscillatorPeriod(unsigned int oscillatorId, double period) {
 	if (oscillatorId < MAX_NUMBER_OF_OSCILLATORS && period >= 1) {
-		pthread_mutex_lock(&mutex);
+		mutex.lock();
 		osc_period[oscillatorId] = period;
-		pthread_mutex_unlock(&mutex);
+		mutex.unlock();
 	}
 }
 
@@ -316,9 +321,9 @@ double WaveEngine::getOscillatorPhase(unsigned int oscillatorId) {
 }
 void WaveEngine::setOscillatorPhase(unsigned int oscillatorId, double phase) {
 	if (oscillatorId < MAX_NUMBER_OF_OSCILLATORS) {
-		pthread_mutex_lock(&mutex);
+		mutex.lock();
 		osc_phase[oscillatorId] = phase;
-		pthread_mutex_unlock(&mutex);
+		mutex.unlock();
 	}
 }
 
@@ -331,9 +336,9 @@ double WaveEngine::getOscillatorAmplitude(unsigned int oscillatorId) {
 void WaveEngine::setOscillatorAmplitude(unsigned int oscillatorId,
 		double amplitude) {
 	if (oscillatorId < MAX_NUMBER_OF_OSCILLATORS) {
-		pthread_mutex_lock(&mutex);
+		mutex.lock();
 		osc_amplitude[oscillatorId] = amplitude;
-		pthread_mutex_unlock(&mutex);
+		mutex.unlock();
 	}
 }
 
@@ -346,9 +351,9 @@ double WaveEngine::getOscillatorMovePeriod(unsigned int oscillatorId) {
 void WaveEngine::setOscillatorMovePeriod(unsigned int oscillatorId,
 		double movePeriod) {
 	if (oscillatorId < MAX_NUMBER_OF_OSCILLATORS && movePeriod >= 1) {
-		pthread_mutex_lock(&mutex);
+		mutex.lock();
 		osc_move_period[oscillatorId] = movePeriod;
-		pthread_mutex_unlock(&mutex);
+		mutex.unlock();
 	}
 }
 
@@ -368,14 +373,14 @@ Point WaveEngine::getOscillatorLocation(unsigned int oscillatorId,
 void WaveEngine::setOscillatorLocation(unsigned int oscillatorId,
 		unsigned int locationId, Point location) {
 	if (oscillatorId < MAX_NUMBER_OF_OSCILLATORS && locationId <= 1) {
-		pthread_mutex_lock(&mutex);
+		mutex.lock();
 		if (locationId == 0)
 			osc_location1_p[oscillatorId] = location;
 		else
 			osc_location2_p[oscillatorId] = location;
 
 		updateOscLocIndices(oscillatorId);
-		pthread_mutex_unlock(&mutex);
+		mutex.unlock();
 	}
 
 }
@@ -412,10 +417,10 @@ double WaveEngine::getLossRatio() {
 }
 
 void WaveEngine::setLossRatio(double loss) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->loss = clamp(loss, 0.0, 1.0);
 	setLossRatio();
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 double WaveEngine::getFramesPerSecond() {
@@ -423,10 +428,10 @@ double WaveEngine::getFramesPerSecond() {
 }
 
 void WaveEngine::setFramesPerSecond(double framesPerSecond) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->FPS = clamp(framesPerSecond, 0, framesPerSecond);
 	paintDone = 0;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 double WaveEngine::getIterationsPerSecond() {
@@ -434,10 +439,10 @@ double WaveEngine::getIterationsPerSecond() {
 }
 
 void WaveEngine::setIterationsPerSecond(double iterationsPerSecond) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->IPS = clamp(iterationsPerSecond, 0, iterationsPerSecond);
 	calcDone = 0;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 unsigned int WaveEngine::getNumberOfThreads() {
@@ -445,11 +450,11 @@ unsigned int WaveEngine::getNumberOfThreads() {
 }
 
 void WaveEngine::setNumberOfThreads(unsigned int numberOfThreads) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	unsigned int oldNumOfThreads = numOfThreads;
 	this->numOfThreads = clamp(numberOfThreads, 1, MAX_NUMBER_OF_THREADS);
 	setCoThreads(oldNumOfThreads);
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 unsigned int WaveEngine::getThreadDelay() {
@@ -457,9 +462,9 @@ unsigned int WaveEngine::getThreadDelay() {
 }
 
 void WaveEngine::setThreadDelay(unsigned int threadDelay) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->TDelay = clamp(threadDelay, 0, 1000);
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 bool WaveEngine::getRenderEnabled() {
@@ -467,9 +472,9 @@ bool WaveEngine::getRenderEnabled() {
 }
 
 void WaveEngine::setRenderEnabled(bool renderEnabled) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->renderEnabled = renderEnabled;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 bool WaveEngine::getCalculationEnabled() {
@@ -477,9 +482,9 @@ bool WaveEngine::getCalculationEnabled() {
 }
 
 void WaveEngine::setCalculationEnabled(bool calculationEnabled) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->calculationEnabled = calculationEnabled;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 bool WaveEngine::getLogPerformance() {
@@ -487,9 +492,9 @@ bool WaveEngine::getLogPerformance() {
 }
 
 void WaveEngine::setLogPerformance(bool logPerformance) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->logPerformance = logPerformance;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 bool WaveEngine::getPowerSaveMode() {
@@ -497,9 +502,9 @@ bool WaveEngine::getPowerSaveMode() {
 }
 
 void WaveEngine::setPowerSaveMode(bool powerSaveMode) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->powerSaveMode = powerSaveMode;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 unsigned int WaveEngine::getPerformanceLogInterval() {
@@ -508,10 +513,10 @@ unsigned int WaveEngine::getPerformanceLogInterval() {
 
 void WaveEngine::setPerformanceLogInterval(
 		unsigned int performanceLogInterval) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->performanceLogInterval = clamp(performanceLogInterval, 0,
 			performanceLogInterval);
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 double WaveEngine::getMassMapRangeHigh() {
@@ -519,9 +524,9 @@ double WaveEngine::getMassMapRangeHigh() {
 }
 
 void WaveEngine::setMassMapRangeHigh(double massMapRangeHigh) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->massMapRangeHigh = clamp(massMapRangeHigh, 0, massMapRangeHigh);
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 double WaveEngine::getMassMapRangeLow() {
@@ -529,9 +534,9 @@ double WaveEngine::getMassMapRangeLow() {
 }
 
 void WaveEngine::setMassMapRangeLow(double massMapRangeLow) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->massMapRangeLow = clamp(massMapRangeLow, 0, massMapRangeLow);
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 bool WaveEngine::getShowMassMap() {
@@ -539,9 +544,9 @@ bool WaveEngine::getShowMassMap() {
 }
 
 void WaveEngine::setShowMassMap(bool showMassMap) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->massMap = showMassMap;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 unsigned int WaveEngine::getSize() {
@@ -549,14 +554,14 @@ unsigned int WaveEngine::getSize() {
 }
 
 void WaveEngine::setSize(unsigned int size) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	unsigned int oldsize = this->size;
 	this->size = clamp(size, 1, size);
 	sizesize = size * size;
 	sizesized = sizesize;
 	setPool(oldsize);
 	setCoThreads(numOfThreads);
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 double WaveEngine::getAbsorberLossRatio() {
@@ -564,10 +569,10 @@ double WaveEngine::getAbsorberLossRatio() {
 }
 
 void WaveEngine::setAbsorberLossRatio(double absorberLoss) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->max_loss = clamp(absorberLoss, 0, 1.0);
 	setLossRatio();
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 unsigned int WaveEngine::getAbsorberThickness() {
@@ -575,10 +580,10 @@ unsigned int WaveEngine::getAbsorberThickness() {
 }
 
 void WaveEngine::setAbsorberThickness(unsigned int absorberThickness) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->absorb_offset = clamp(absorberThickness, 0, size / 2);
 	setLossRatio();
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 bool WaveEngine::getShiftParticlesEnabled() {
@@ -586,9 +591,9 @@ bool WaveEngine::getShiftParticlesEnabled() {
 }
 
 void WaveEngine::setShiftParticlesEnabled(bool shiftParticlesEnabled) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->shifting = shiftParticlesEnabled;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 bool WaveEngine::getAbsorberEnabled() {
@@ -596,10 +601,10 @@ bool WaveEngine::getAbsorberEnabled() {
 }
 
 void WaveEngine::setAbsorberEnabled(bool absorberEnabled) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->absorberEnabled = absorberEnabled;
 	setLossRatio();
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 WaveEngine::RenderCallback WaveEngine::getRenderCallback() {
@@ -608,10 +613,10 @@ WaveEngine::RenderCallback WaveEngine::getRenderCallback() {
 
 void WaveEngine::setRenderCallback(RenderCallback renderCallback,
 		void * extra_data) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->renderCallback = renderCallback;
 	this->extra_data = extra_data;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 void * WaveEngine::getExtraData() {
@@ -623,9 +628,9 @@ bool WaveEngine::getExtremeContrastEnabled() {
 }
 
 void WaveEngine::setExtremeContrastEnabled(bool extremeContrastEnabled) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->extremeContrastEnabled = extremeContrastEnabled;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 unsigned int WaveEngine::getAmplitudeMultiplier() {
@@ -633,9 +638,9 @@ unsigned int WaveEngine::getAmplitudeMultiplier() {
 }
 
 void WaveEngine::setAmplitudeMultiplier(unsigned int amplitudeMultiplier) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->amplitudeMultiplier = amplitudeMultiplier;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 Color WaveEngine::getCrestColor() {
@@ -643,9 +648,9 @@ Color WaveEngine::getCrestColor() {
 }
 
 void WaveEngine::setCrestColor(Color crestColor) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->crestColor = crestColor;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 Color WaveEngine::getTroughColor() {
@@ -653,9 +658,9 @@ Color WaveEngine::getTroughColor() {
 }
 
 void WaveEngine::setTroughColor(Color troughColor) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->troughColor = troughColor;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 Color WaveEngine::getStaticColor() {
@@ -663,21 +668,21 @@ Color WaveEngine::getStaticColor() {
 }
 
 void WaveEngine::setStaticColor(Color staticColor) {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	this->staticColor = staticColor;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 bool WaveEngine::lock() {
 	if (locked)
 		return false;
 	locked = true;
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	return true;
 }
 
 bool WaveEngine::unlock() {
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 	locked = false;
 	return true;
 }
@@ -702,15 +707,15 @@ void * WaveEngine::getData(ParticleAttribute particleAttribute) {
 }
 
 void WaveEngine::start() {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	work_now = true;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 void WaveEngine::stop() {
-	pthread_mutex_lock(&mutex);
+	mutex.lock();
 	work_now = false;
-	pthread_mutex_unlock(&mutex);
+	mutex.unlock();
 }
 
 bool WaveEngine::isWorking() {
@@ -1208,16 +1213,16 @@ void * WaveEngine::CoThreadFunc(void * data) {
 	WaveEngine * waveEngine = arg->waveEngine;
 	int i = arg->index;
 	delete arg;
-	pthread_mutex_lock(&waveEngine->mCout);
+	waveEngine->mCout.lock();
 	std::cout << "co-thread[" << i << "] is going into loop" << std::endl;
-	pthread_mutex_unlock(&waveEngine->mCout);
+	waveEngine->mCout.unlock();
 	bool signal_main = false;
 	struct timespec timeout;
 
 	while (waveEngine->ctMission != Destroy && !waveEngine->disposing) {
 
 		signal_main = false;
-		pthread_mutex_lock(&waveEngine->mEndMutex[i]);
+		waveEngine->mEndMutex[i].lock();
 		if (!waveEngine->ctDone[i]) {
 			if (waveEngine->ctMission == CalculateForces) {
 				waveEngine->calculateForces(waveEngine->ctStruct[i].firstIndex,
@@ -1238,34 +1243,38 @@ void * WaveEngine::CoThreadFunc(void * data) {
 				//std::cout << "signaling main (" << i << ")" << std::endl;
 
 				waveEngine->ctDone[i] = true;
-				pthread_cond_signal(&waveEngine->mEndCond[i]);
+				waveEngine->mEndCond[i].notify_one();
 
 			}
 		}
-		pthread_mutex_unlock(&waveEngine->mEndMutex[i]);
+		waveEngine->mEndMutex[i].unlock();
 
 		clock_gettime(CLOCK_REALTIME, &timeout);
 		timeout.tv_sec += 1;
-		pthread_mutex_lock(&waveEngine->mStartMutex);
-		while (waveEngine->ctMission == Pause && !waveEngine->disposing
-				&& waveEngine->work_now) {
-			//int x =
-			pthread_cond_timedwait(&waveEngine->mStartCond,
-					&waveEngine->mStartMutex, &timeout);
-			timeout.tv_sec += 1;
-			//if (x != 0)
-			//	std::cout << "error on cond wait " << x
-			//			<< " on main (co thread)" << std::endl;
+		//waveEngine->mStartMutex.lock();
+		{
+			std::unique_lock<std::mutex> unique_lock(waveEngine->mStartMutex);
+			while (waveEngine->ctMission == Pause && !waveEngine->disposing
+					&& waveEngine->work_now) {
+
+				waveEngine->mStartCond.wait_for(unique_lock, 1s);
+
+				timeout.tv_sec += 1;
+
+			}
 		}
-		pthread_mutex_unlock(&waveEngine->mStartMutex);
+
+		//waveEngine->mStartMutex.unlock();
 
 		if (!waveEngine->work_now)
-			usleep(waveEngine->TDelay * 1e3);
+			std::this_thread::sleep_for(
+					std::chrono::milliseconds(
+							waveEngine->TDelay));
 	}
 
-	pthread_mutex_lock(&waveEngine->mCout);
+	waveEngine->mCout.lock();
 	std::cout << "co-thread[" << i << "] is returning" << std::endl;
-	pthread_mutex_unlock(&waveEngine->mCout);
+	waveEngine->mCout.unlock();
 	return 0;
 }
 
@@ -1273,9 +1282,9 @@ void WaveEngine::setCoThreads(unsigned int oldNumOfThreads) {
 
 	sendOrderToCT(Destroy);
 
-	void * ret;
 	for (unsigned int i = 0; i < oldNumOfThreads; i++)
-		pthread_join(coThreads[i], &ret);
+		if (coThreads[i].joinable())
+			coThreads[i].join();
 
 	ctMission = Pause;
 
@@ -1290,8 +1299,10 @@ void WaveEngine::setCoThreads(unsigned int oldNumOfThreads) {
 		ctStruct[i] = coThreadStruct(i, curPart, partial_size);
 		coThreadFuncArg * funcarg = new coThreadFuncArg(this, i);
 
-		if (pthread_create(&coThreads[i], NULL, CoThreadFunc, funcarg) == 0)
-			curPart += partial_size;
+		coThreads[i] = std::thread(CoThreadFunc, funcarg);
+
+		//if (pthread_create(&coThreads[i], NULL, CoThreadFunc, funcarg) == 0)
+		curPart += partial_size;
 	}
 }
 }

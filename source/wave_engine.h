@@ -1,13 +1,16 @@
 #ifndef WAVEENGINE_H
 #define WAVEENGINE_H
 
-#include <math.h>
-#include <unistd.h>
-#include <cstdint>
 #include <iostream>
+#include <atomic>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
+#include <math.h>
+#include <cstdint>
 #include <vector>
 #include <memory.h>
-#include <pthread.h>
 
 #define clamp(x, low, high)  (((x) > (high)) ? (high) : (((x) < (low)) ? (low) : (x)))
 #define MAX_NUMBER_OF_THREADS 32 // Might also be hard-coded in UI
@@ -187,15 +190,15 @@ protected:
 	unsigned int calcDone = 0; // How many calculations have been done so far?
 	unsigned int paintDone = 0; // How many paintings have been done so far?
 	unsigned int numOfThreads = 1; // Number of co-threads. Should be equal to the number of CPU cores for the best performance.
-	unsigned int TDelay = 5; // Sleep delay for the Main Thread at pause.
-	pthread_t MainT; // Main thread that will generate and run 'numOfThreads' co-threads.
-	pthread_t * coThreads; // The engine will benefit from all of the cores of CPU efficiently with these co-threads.
-	pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; // For properties and general access restrictions.
-	pthread_mutex_t * mEndMutex; // 'I have completed my mission' signal from co-thread.
-	pthread_cond_t * mEndCond; // 'I have completed my mission' signal from co-thread.
-	pthread_mutex_t mStartMutex = PTHREAD_MUTEX_INITIALIZER; // 'You have new mission' signal from main thread.
-	pthread_cond_t mStartCond = PTHREAD_COND_INITIALIZER; // 'You have new mission' signal from main thread.
-	pthread_mutex_t mCout = PTHREAD_MUTEX_INITIALIZER; // Prevent simultaneous calls to std::cout
+	unsigned int TDelay = 5; // Sleep delay for the Main Thread at pause in ms.
+	std::thread MainT; // Main thread that will generate and run 'numOfThreads' co-threads.
+	std::thread * coThreads; // The engine will benefit from all of the cores of CPU efficiently with these co-threads.
+	std::mutex mutex; // For properties and general access restrictions.
+	std::mutex * mEndMutex; // 'I have completed my mission' signal from co-thread.
+	std::condition_variable * mEndCond; // 'I have completed my mission' signal from co-thread.
+	std::mutex mStartMutex; // 'You have new mission' signal from main thread.
+	std::condition_variable mStartCond; // 'You have new mission' signal from main thread.
+	std::mutex mCout; // Prevent simultaneous calls to std::cout
 	coThreadMission ctMission = Pause; // Defines the mission for each co-thread.
 	coThreadStruct * ctStruct; // Data argument for co-threads that define their working range.
 	bool * ctDone; // True if a co-thread's mission is complete.
