@@ -1,7 +1,5 @@
 #include "wave_engine.h"
 
-using namespace std::chrono_literals;
-
 namespace WaveSimulation {
 
 WaveEngine::WaveEngine() {
@@ -142,7 +140,7 @@ void WaveEngine::waitForCT() {
 			std::unique_lock<std::mutex> unique_lock(mEndMutex[i]);
 			while (work_now && !ctDone[i]) {
 
-				mEndCond[i].wait_for(unique_lock, 3s);
+				mEndCond[i].wait_for(unique_lock, std::chrono::seconds(3));
 
 				//pthread_cond_timedwait(&mEndCond[i], &mEndMutex[i], &timeout);
 				timeout.tv_sec += 3;
@@ -1257,7 +1255,7 @@ void * WaveEngine::CoThreadFunc(void * data) {
 			while (waveEngine->ctMission == Pause && !waveEngine->disposing
 					&& waveEngine->work_now) {
 
-				waveEngine->mStartCond.wait_for(unique_lock, 1s);
+				waveEngine->mStartCond.wait_for(unique_lock, std::chrono::seconds(1));
 
 				timeout.tv_sec += 1;
 
