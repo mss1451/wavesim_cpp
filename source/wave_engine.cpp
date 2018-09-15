@@ -131,32 +131,25 @@ void WaveEngine::sendOrderToCT(coThreadMission order) {
 }
 
 void WaveEngine::waitForCT() {
-	struct timespec timeout;
 	for (unsigned int i = 0; i < numOfThreads; i++) {
-		clock_gettime(CLOCK_REALTIME, &timeout);
-		timeout.tv_sec += 3;
-		//mEndMutex[i].lock();
 		{
 			std::unique_lock<std::mutex> unique_lock(mEndMutex[i]);
 			while (work_now && !ctDone[i]) {
 
 				mEndCond[i].wait_for(unique_lock, std::chrono::seconds(3));
 
-				//pthread_cond_timedwait(&mEndCond[i], &mEndMutex[i], &timeout);
-				timeout.tv_sec += 3;
-
 			}
 		}
-		//mEndMutex[i].unlock();
 	}
 }
 
 void * WaveEngine::MainThreadFunc(void * data) {
 	WaveEngine * waveEngine = (WaveEngine *) data;
 
-	struct timespec time_current, time_log_previous, time_start;
-	clock_gettime(CLOCK_MONOTONIC, &time_current);
-	time_start = time_log_previous = time_current;
+	//struct timespec time_current, time_log_previous, time_start;
+	std::chrono::steady_clock::time_point time_current, time_log_previous, time_start;
+	time_start = time_log_previous = time_current =
+			std::chrono::steady_clock::now();
 	double numOfCalcs = 0; // For statistics, how many calculations have been done so far?
 	double numOfPaints = 0; // For statistics, how many paintings have been done so far?
 	unsigned int calcNeeded = 0; // How many calculations should have been done since beginning?
@@ -166,11 +159,12 @@ void * WaveEngine::MainThreadFunc(void * data) {
 		while (waveEngine->work_now) {
 
 			if (waveEngine->work_now && waveEngine->calculationEnabled) {
-				clock_gettime(CLOCK_MONOTONIC, &time_current);
+				time_current = std::chrono::steady_clock::now();
 				if ((waveEngine->IPS == 0
-						|| (calcNeeded = (unsigned int) ((ts_to_ms(time_current)
-								- ts_to_ms(time_start))
-								/ (1000.0 / waveEngine->IPS)))
+						|| (calcNeeded =
+								(unsigned int) (
+										std::chrono::duration_cast<std::chrono::duration<double>>(time_current - time_start).count()
+										*  waveEngine->IPS))
 								> waveEngine->calcDone)) {
 					waveEngine->mutex.lock();
 					waveEngine->sendOrderToCT(CalculateForces);
@@ -195,11 +189,12 @@ void * WaveEngine::MainThreadFunc(void * data) {
 			}
 
 			if (waveEngine->work_now && waveEngine->renderEnabled) {
-				clock_gettime(CLOCK_MONOTONIC, &time_current);
+				time_current = std::chrono::steady_clock::now();
 				if (waveEngine->FPS == 0
-						|| (paintNeeded = (unsigned int) ((ts_to_ms(
-								time_current) - ts_to_ms(time_start))
-								/ (1000.0 / waveEngine->FPS)))
+						|| (paintNeeded =
+								(unsigned int) (std::chrono::duration_cast<std::chrono::duration<double>>(
+										time_current - time_start).count()
+										* waveEngine->FPS))
 								> waveEngine->paintDone) {
 					waveEngine->mutex.lock();
 					waveEngine->sendOrderToCT(CalculateColors);
@@ -222,10 +217,10 @@ void * WaveEngine::MainThreadFunc(void * data) {
 			}
 
 			if (waveEngine->work_now) {
-				clock_gettime(CLOCK_MONOTONIC, &time_current);
-				if (ts_to_ms(time_current) - ts_to_ms(time_log_previous)
-						>= waveEngine->performanceLogInterval) {
-					clock_gettime(CLOCK_MONOTONIC, &time_log_previous);
+				time_current = std::chrono::steady_clock::now();
+				if (std::chrono::duration_cast<std::chrono::duration<double>>(time_current - time_log_previous).count()
+						>= waveEngine->performanceLogInterval / 1000.0) {
+					time_log_previous = std::chrono::steady_clock::now();
 					double perf_interval =
 							(double) waveEngine->performanceLogInterval;
 					waveEngine->mCout.lock();
@@ -254,8 +249,8 @@ void * WaveEngine::MainThreadFunc(void * data) {
 				if (waveEngine->powerSaveMode)
 					std::this_thread::sleep_for(
 							std::chrono::milliseconds(waveEngine->TDelay));
-				//else
-				//std::this_thread::yield();
+				else
+					std::this_thread::yield();
 			}
 
 		}
@@ -1215,7 +1210,6 @@ void * WaveEngine::CoThreadFunc(void * data) {
 	std::cout << "co-thread[" << i << "] is going into loop" << std::endl;
 	waveEngine->mCout.unlock();
 	bool signal_main = false;
-	struct timespec timeout;
 
 	while (waveEngine->ctMission != Destroy && !waveEngine->disposing) {
 
@@ -1247,27 +1241,20 @@ void * WaveEngine::CoThreadFunc(void * data) {
 		}
 		waveEngine->mEndMutex[i].unlock();
 
-		clock_gettime(CLOCK_REALTIME, &timeout);
-		timeout.tv_sec += 1;
-		//waveEngine->mStartMutex.lock();
 		{
 			std::unique_lock<std::mutex> unique_lock(waveEngine->mStartMutex);
 			while (waveEngine->ctMission == Pause && !waveEngine->disposing
 					&& waveEngine->work_now) {
 
-				waveEngine->mStartCond.wait_for(unique_lock, std::chrono::seconds(1));
-
-				timeout.tv_sec += 1;
+				waveEngine->mStartCond.wait_for(unique_lock,
+						std::chrono::seconds(1));
 
 			}
 		}
 
-		//waveEngine->mStartMutex.unlock();
-
 		if (!waveEngine->work_now)
 			std::this_thread::sleep_for(
-					std::chrono::milliseconds(
-							waveEngine->TDelay));
+					std::chrono::milliseconds(waveEngine->TDelay));
 	}
 
 	waveEngine->mCout.lock();

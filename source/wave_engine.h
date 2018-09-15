@@ -2,7 +2,6 @@
 #define WAVEENGINE_H
 
 #include <iostream>
-#include <atomic>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
