@@ -2207,10 +2207,9 @@ Author: Mustafa Sami Salt
     <property name="program_name">Wave Simulator</property>
     <property name="version">2.0</property>
     <property name="website_label" translatable="yes">Sample program for 'Wave Simulator with C++' Codeproject article.</property>
-    <property name="license" translatable="yes">The Code Project Open License (CPOL) 1.02 - https://www.codeproject.com/info/cpol10.aspx
-Please also see 'LICENCE.txt' at https://github.com/benhoyt/inih</property>
     <property name="authors">Mustafa Sami Salt</property>
     <property name="logo_icon_name">applications-science</property>
+    <property name="license_type">mit-x11</property>
     <child>
       <placeholder/>
     </child>
