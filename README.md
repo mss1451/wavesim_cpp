@@ -30,9 +30,9 @@ Build now.
 
 After a successful build, there should be the executable with the name **wavesim_cpp**.
 ## Running
-There is a 64-bit executable inside the **binary** directory which can be run directly. Move it to the upper directory where the **data** folder exists and run it or, if you have just built from the source, do the following.
+There are 64-bit and 32-bit executables inside the **binary_*** directories which can be run directly. Move one of them to the upper directory where the **data** folder exists and run it or, if you have just built from the source, do the following.
 
-Move the executable from either the **Release** or **Debug** directory to the upper directory where the **data** folder exists. The program simply needs the **data** on its working directory so you can also move the folder to the executable directory instead. Let's move the exectuable from **Release** to the upper directory.
+After building, move the executable from either the **Release** or **Debug** directory to the upper directory where the **data** folder exists. The program simply needs the **data** on its working directory so you can also move the folder to the executable directory instead. Let's move the exectuable from **Release** to the upper directory.
 
 Enter the **Release** directory.
 
