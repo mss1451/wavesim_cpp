@@ -15,7 +15,7 @@ This is an Eclipse CDT project. The following development packages are required.
 It is also required to install the core packages such as libgtk-3-dev. You need **pkg-config** installed for the compiler to resolve the include and library directories.
 ## Tested On
 ### Java
-Windows 10 Home (64-bit)
+- Windows 10 Home (64-bit)
 ### C++
 - Linux Mint 19 Tara - Cinnamon (64-bit)
 - Pardus 17.3 - XFCE (64-bit)
