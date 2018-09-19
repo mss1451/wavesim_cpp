@@ -1,8 +1,10 @@
 # Wave Simulator with Java and C++
 This is an example wave simulation engine written in both Java and C++. The engine comes with a native Linux application which uses [gtkmm](https://www.gtkmm.org/) and [cairomm](https://www.cairographics.org/cairomm/) and an example Java application. For more details on what this project is about, see its [Code Project Article](https://www.codeproject.com/Articles/1259631/Wave-Simulator-with-Java-and-Cplusplus)
-# C++ version
 ## Prerequisites
-This is an Eclipse CDT project but it can be compiled by using _make_. The following development packages are required.
+### Java
+This is a NetBeans project. Java 8 or later is required.
+### C++
+This is an Eclipse CDT project. The following development packages are required.
 1. libgtkmm-3.0-dev
 3. libglibmm-2.4-dev
 4. libcairomm-1.0-dev
@@ -12,10 +14,14 @@ This is an Eclipse CDT project but it can be compiled by using _make_. The follo
 
 It is also required to install the core packages such as libgtk-3-dev. You need **pkg-config** installed for the compiler to resolve the include and library directories.
 ## Tested On
+### Java
+Windows 10 Home (64-bit)
+### C++
 - Linux Mint 19 Tara - Cinnamon (64-bit)
 - Pardus 17.3 - XFCE (64-bit)
 ## Building
-With a terminal, enter either the **Release** or **Debug** directories depending on which version of the program you want to build. Let's build a **Release** version.
+### C++
+In a terminal, enter either the **Release** or **Debug** directories depending on which version of the program you want to build. Let's build a **Release** version.
 
 Enter the **Release** directory by entering the following command.
 
@@ -54,5 +60,3 @@ Run the program.
 Mustafa Sami Salt
 ## Acknowledgments
 INI file reader provided from https://github.com/benhoyt/inih.
-# Java version
-
