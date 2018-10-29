@@ -46,6 +46,8 @@ protected:
 
 	TextView * textview_description;
 
+	Label * label_info;
+
 	Notebook * notebook1;
 
 	SpinButton * spinbutton_size, *spinbutton_loss, *spinbutton_abs_peak,
@@ -59,13 +61,14 @@ protected:
 			*spinbutton_thread_sleep, *spinbutton_max_fps,
 			*spinbutton_amp_mult_max, *spinbutton_dec_place;
 
-	Switch * switch_shift_center, *switch_enable_absorb,
-			*switch_edit_mass, *switch_mass_line_mode, *switch_osc_enabled,
-			*switch_show_oscs, *switch_edit_static, *switch_static_line_mode,
-			*switch_render, *switch_extreme_cont, *switch_ignore_num_scroll,
+	Switch * switch_shift_center, *switch_enable_absorb, *switch_edit_mass,
+			*switch_mass_line_mode, *switch_osc_enabled, *switch_show_oscs,
+			*switch_edit_static, *switch_static_line_mode, *switch_render,
+			*switch_extreme_cont, *switch_ignore_num_scroll,
 			*switch_ignore_list_scroll, *switch_ignore_scale_scroll;
 
-	RadioButton * radiobutton_point, * radiobutton_line, * radiobutton_moving_point;
+	RadioButton * radiobutton_point, *radiobutton_line,
+			*radiobutton_moving_point;
 
 	Button * button_fill_mass, *button_clear_mass, *button_swap_mass,
 			*button_fill_static, *button_clear_static, *button_set_to_cpu_cores,
@@ -158,14 +161,14 @@ protected:
 	void on_notification_from_render_thread();
 
 	// Connections
-	sigc::connection osc_enabled_changed_con, on_source_changed_con[3], on_period_changed_con,
-			on_phase_changed_con, on_amp_changed_con, on_locx1_changed_con,
-			on_locy1_changed_con, on_locx2_changed_con, on_locy2_changed_con,
-			on_move_period_changed_con;
+	sigc::connection osc_enabled_changed_con, on_source_changed_con[3],
+			on_period_changed_con, on_phase_changed_con, on_amp_changed_con,
+			on_locx1_changed_con, on_locy1_changed_con, on_locx2_changed_con,
+			on_locy2_changed_con, on_move_period_changed_con;
 
-	sigc::connection size_changed_con, loss_changed_con,
-			abs_peak_changed_con, abs_thick_changed_con,
-			shift_center_changed_con, enable_absorb_changed_con;
+	sigc::connection size_changed_con, loss_changed_con, abs_peak_changed_con,
+			abs_thick_changed_con, shift_center_changed_con,
+			enable_absorb_changed_con;
 
 	// Wave Engine related
 	Dispatcher dispatcher;
@@ -188,6 +191,9 @@ protected:
 
 	// Drawing cursor used to preview the shape and size of pen in real-time.
 	bool draw_preview = false;
+
+	// Is pointer in the drawing area?
+	bool pointer_in_drawing_area = false;
 
 	// Pool area
 	Rectangle pool;
@@ -217,6 +223,7 @@ protected:
 	void updateCursor(bool arrow);
 	void scanProjects(TreeView*, Dialog*);
 	void deleteProject(TreeView*, Dialog*);
+	void updateInfoLabel();
 
 };
 

@@ -145,7 +145,7 @@ ProjectHandlerResult ProjectHandler::saveProject(string projectName,
 		}
 
 		free(osc_active);
-		free (osc_source);
+		free(osc_source);
 		free(osc_period);
 		free(osc_phase);
 		free(osc_amplitude);
@@ -318,7 +318,7 @@ ProjectHandlerResult ProjectHandler::openProject(string projectName,
 		}
 
 		free(osc_active);
-		free (osc_source);
+		free(osc_source);
 		free(osc_period);
 		free(osc_phase);
 		free(osc_amplitude);

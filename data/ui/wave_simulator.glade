@@ -100,7 +100,7 @@ Author: Mustafa Sami Salt
   </object>
   <object class="GtkAdjustment" id="adjustment_mass_max">
     <property name="upper">1576800000000000</property>
-    <property name="value">5</property>
+    <property name="value">50</property>
     <property name="step_increment">0.10000000000000001</property>
     <property name="page_increment">1</property>
   </object>
@@ -119,13 +119,13 @@ Author: Mustafa Sami Salt
   </object>
   <object class="GtkAdjustment" id="adjustment_mass_primary">
     <property name="upper">1576800000000000</property>
-    <property name="value">2</property>
+    <property name="value">5</property>
     <property name="step_increment">0.10000000000000001</property>
     <property name="page_increment">1</property>
   </object>
   <object class="GtkAdjustment" id="adjustment_mass_secondary">
     <property name="upper">1576800000000000</property>
-    <property name="value">1</property>
+    <property name="value">20</property>
     <property name="step_increment">0.10000000000000001</property>
     <property name="page_increment">1</property>
   </object>
@@ -2197,6 +2197,22 @@ Author: Mustafa Sami Salt
             <property name="position">2</property>
           </packing>
         </child>
+        <child>
+          <object class="GtkLabel" id="label_info">
+            <property name="visible">True</property>
+            <property name="can_focus">False</property>
+            <property name="halign">start</property>
+            <property name="margin_left">3</property>
+            <property name="margin_right">3</property>
+            <property name="margin_top">3</property>
+            <property name="margin_bottom">3</property>
+          </object>
+          <packing>
+            <property name="expand">False</property>
+            <property name="fill">True</property>
+            <property name="position">3</property>
+          </packing>
+        </child>
       </object>
     </child>
   </object>
@@ -2205,8 +2221,7 @@ Author: Mustafa Sami Salt
     <property name="type_hint">dialog</property>
     <property name="transient_for">mainWindow</property>
     <property name="program_name">Wave Simulator</property>
-    <property name="version">2.0</property>
-    <property name="website_label" translatable="yes">Sample program for 'Wave Simulator with C++' Codeproject article.</property>
+    <property name="version">2.1</property>
     <property name="authors">Mustafa Sami Salt</property>
     <property name="logo_icon_name">applications-science</property>
     <property name="license_type">mit-x11</property>

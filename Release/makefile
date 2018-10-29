@@ -44,7 +44,7 @@ all: wavesim_cpp
 wavesim_cpp: $(OBJS) $(USER_OBJS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: GCC C++ Linker'
-	g++ -o "wavesim_cpp" $(OBJS) $(USER_OBJS) $(LIBS) `pkg-config --libs gtkmm-3.0`
+	g++  -o "wavesim_cpp" $(OBJS) $(USER_OBJS) $(LIBS) $(shell pkg-config --libs gtkmm-3.0)
 	@echo 'Finished building target: $@'
 	@echo ' '
 

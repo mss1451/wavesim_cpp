@@ -15,26 +15,42 @@
 #define MAX_NUMBER_OF_THREADS 32 // Might also be hard-coded in UI
 #define MAX_NUMBER_OF_OSCILLATORS 9 // Might also be hard-coded in UI
 
+// The model described in the article (Spring model). It has a few problems:
+// Extremely high frequency waves are hardly absorbed once they are produced.
+// Has a potential for positive feedback(PF). The PF usually results in chaos.
+// The chaos makes the system unusable; very powerful noise takes place.
+// The other reasons, if any, for the chaos is unknown.
+// Increase the mass of particles for a lower chance of chaos.
+#define WAVE_ENGINE_SPRING_MODEL
+
+// WAVE_ENGINE_X_MODEL definition was for an attempt of creating an alternative model for the engine.
+// All the other models failed so far.
+
 namespace WaveSimulation {
 
 class WaveEngine;
 
+struct ParticleLocationInfo {
+public:
+	bool top, left, right, bottom;
+};
+
+#if defined(WAVE_ENGINE_SPRING_MODEL)
 enum ParticleAttribute {
 	Height = 1, Velocity = 2, Loss = 4, Mass = 8, Fixity = 16
 };
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 
+#if defined(WAVE_ENGINE_SPRING_MODEL)
 enum coThreadMission {
-	Pause = 1,
-	Destroy = 2,
-	CalculateForces = 4,
-	MoveParticles = 8,
-	CalculateColors = 16
+	Pause = 1, Destroy = 2, CalculateForces = 4, CalculateColors = 8
 };
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 
 enum OscillatorSource {
-	PointSource,
-	LineSource,
-	MovingPointSource
+	PointSource, LineSource, MovingPointSource
 };
 
 struct Color {
@@ -98,7 +114,7 @@ public:
 	}
 
 	friend Point operator*(double lhs, Point rhs) {
-			return Point(lhs * rhs.x, lhs * rhs.y);
+		return Point(lhs * rhs.x, lhs * rhs.y);
 	}
 
 };
@@ -163,14 +179,20 @@ protected:
 	typedef void (*RenderCallback)(uint8_t * bitmap_data,
 			unsigned long data_length, void * extra_data);
 
-	// "vd" stands for "vertex data"
+	// pd -> particle data
 
-	double_t * vd; // Height map
-	double_t * vdv; // Velocity map
-	double_t * vdl; // Loss map
-	double_t * vdm; // Mass map
+#if defined(WAVE_ENGINE_SPRING_MODEL)
+	double_t * pd = 0; // Height map
+	double_t * pd_previous = 0; // Previous height map for calculations
+	double_t average_height = 0; // Average height of the height map for shifting
+	double_t * pdv = 0; // Velocity map
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
+	double_t * pdl = 0; // Loss map
+	double_t * pdm = 0; // Mass map
 	double_t loss = 0.0; // Reduces mechanical energy (potential + kinetic) by the (100 * loss) percent.
-	uint8_t * vd_static; // Static particle map. Particles which will act like a obstacle or wall.
+	uint8_t * pd_static = 0; // Static particle map. Particles which will act like a obstacle or wall.
+	ParticleLocationInfo * pd_location_info = 0; // Location cache to speed up calculations.
 
 	bool * osc_active; // Oscillator turned on/off?
 	OscillatorSource * osc_source; // Whether to emit from a point or line, or move it from location-1 to location-2.
@@ -215,7 +237,7 @@ protected:
 
 	RenderCallback renderCallback = NULL; // Render callback function.
 
-	uint8_t * bitmap_data; // Color data that is passed to the callback function.
+	uint8_t * bitmap_data = 0; // Color data that is passed to the callback function.
 	void * extra_data; // Extra data that is passed to the callback function (such as canvas class).
 
 	bool extremeContrastEnabled = false; // There will be only three colors if true: (A+B)/2 for natural, A for crest, and B for trough.
@@ -226,12 +248,12 @@ protected:
 	Color staticColor = Color(255, 255, 0);
 
 	bool massMap = false; // Display mass map.
-	double massMapRangeHigh = 5.0; // Maximum value for coloring of mass regions.
+	double massMapRangeHigh = 50.0; // Maximum value for coloring of mass regions.
 	double massMapRangeLow = 1.0; // Minimum value for coloring of mass regions.
 
 	bool work_now = false; // True = Thread must make calculations now, False = Thread must sleep now.
 
-	bool shifting = true; // True = Shift particles to origin.
+	bool shifting = true; // True = Shift average height/alpha to origin(zero).
 
 	bool disposing = false; // It will be true once the termination starts.
 
@@ -253,7 +275,8 @@ public:
 	void setOscillatorEnabled(unsigned int oscillatorId, bool enabled);
 
 	OscillatorSource getOscillatorSource(unsigned int oscillatorId);
-	void setOscillatorSource(unsigned int oscillatorId, OscillatorSource oscillatorSource);
+	void setOscillatorSource(unsigned int oscillatorId,
+			OscillatorSource oscillatorSource);
 
 	double getOscillatorPeriod(unsigned int oscillatorId);
 	void setOscillatorPeriod(unsigned int oscillatorId, double period);
@@ -384,15 +407,14 @@ protected:
 
 	void waitForCT();
 
+#if defined(WAVE_ENGINE_SPRING_MODEL)
 	bool calculateForces(const unsigned int firstIndex,
 			const unsigned int count);
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 
 	bool paintBitmap(const unsigned int firstIndex, const unsigned int count,
 			uint8_t *);
-
-	void moveParticles(const unsigned int firstIndex, const unsigned int count);
-
-	void shiftToOrigin();
 
 	void setCoThreads(unsigned int oldNumOfThreads);
 
@@ -400,11 +422,11 @@ protected:
 
 	void setPool(unsigned int oldsize);
 
-	void updateOscLocIndices(unsigned int oscillatorId) ;
+	void updateOscLocIndices(unsigned int oscillatorId);
 
 	// Misc
-	template <typename T> int sgn(T val) {
-	    return (T(0) < val) - (val < T(0));
+	template<typename T> int sgn(T val) {
+		return (T(0) < val) - (val < T(0));
 	}
 
 };

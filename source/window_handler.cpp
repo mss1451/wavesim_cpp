@@ -86,6 +86,9 @@ WindowHandler::WindowHandler(Glib::RefPtr<Builder> builder) :
 	// Text View
 	builder->get_widget("textview_description", textview_description);
 
+	// Label
+	builder->get_widget("label_info", label_info);
+
 	// Notebook
 	builder->get_widget("notebook1", notebook1);
 
@@ -160,8 +163,7 @@ WindowHandler::WindowHandler(Glib::RefPtr<Builder> builder) :
 			&WindowHandler::on_size_changed);
 
 	builder->get_widget("spinbutton_loss", spinbutton_loss);
-	connectEvent(spinbutton_loss,
-			spinbutton_loss->signal_scroll_event(),
+	connectEvent(spinbutton_loss, spinbutton_loss->signal_scroll_event(),
 			&WindowHandler::on_scroll);
 	loss_changed_con = connectEvent(spinbutton_loss,
 			spinbutton_loss->signal_value_changed(),
@@ -788,6 +790,7 @@ bool WindowHandler::on_drawing_area_motion_notify(GdkEventMotion*arg,
 	bool static_line_mode = switch_static_line_mode->get_active();
 	bool edit_mass = switch_edit_mass->get_active();
 	bool edit_static = switch_edit_static->get_active();
+	updateInfoLabel();
 	if (pressing_left_mb || pressing_right_mb) {
 		if (edit_mass || edit_static) {
 			if ((edit_mass && !mass_line_mode)
@@ -808,12 +811,15 @@ bool WindowHandler::on_drawing_area_enter_notify(GdkEventCrossing*arg,
 		DrawingArea*drawingArea) {
 	updateCursor(false);
 	draw_preview = true;
+	pointer_in_drawing_area = true;
 	return false;
 }
 
 bool WindowHandler::on_drawing_area_leave_notify(GdkEventCrossing*arg,
 		DrawingArea*drawingArea) {
 	draw_preview = false;
+	pointer_in_drawing_area = false;
+	updateInfoLabel();
 	return false;
 }
 
@@ -1081,13 +1087,13 @@ void WindowHandler::on_extreme_cont_changed(StateType state, Switch*_switch) {
 }
 void WindowHandler::on_fill_mass_clicked(Button*button) {
 	if (waveEngine.lock()) {
-		double * vdm = (double *) waveEngine.getData(ParticleAttribute::Mass);
-		if (vdm != nullptr) {
+		double * pdm = (double *) waveEngine.getData(ParticleAttribute::Mass);
+		if (pdm != nullptr) {
 			unsigned int sizesize = waveEngine.getSize();
 			sizesize *= sizesize;
 			double primarymass = spinbutton_primary_mass->get_value();
 			for (unsigned int i = 0; i < sizesize; i++) {
-				vdm[i] = primarymass;
+				pdm[i] = primarymass;
 			}
 		}
 		waveEngine.unlock();
@@ -1095,13 +1101,13 @@ void WindowHandler::on_fill_mass_clicked(Button*button) {
 }
 void WindowHandler::on_clear_mass_clicked(Button*button) {
 	if (waveEngine.lock()) {
-		double * vdm = (double *) waveEngine.getData(ParticleAttribute::Mass);
-		if (vdm != nullptr) {
+		double * pdm = (double *) waveEngine.getData(ParticleAttribute::Mass);
+		if (pdm != nullptr) {
 			unsigned int sizesize = waveEngine.getSize();
 			sizesize *= sizesize;
 			double secondarymass = spinbutton_secondary_mass->get_value();
 			for (unsigned int i = 0; i < sizesize; i++) {
-				vdm[i] = secondarymass;
+				pdm[i] = secondarymass;
 			}
 		}
 		waveEngine.unlock();
@@ -1115,12 +1121,12 @@ void WindowHandler::on_swap_mass_clicked(Button*button) {
 
 void WindowHandler::on_fill_static_clicked(Button*button) {
 	if (waveEngine.lock()) {
-		bool * vds = (bool *) waveEngine.getData(Fixity);
-		if (vds != nullptr) {
+		bool * pds = (bool *) waveEngine.getData(Fixity);
+		if (pds != nullptr) {
 			unsigned int sizesize = waveEngine.getSize();
 			sizesize *= sizesize;
 			for (unsigned int i = 0; i < sizesize; i++) {
-				vds[i] = true;
+				pds[i] = true;
 			}
 		}
 		waveEngine.unlock();
@@ -1133,12 +1139,12 @@ void WindowHandler::on_set_to_cpu_cores_clicked(Button*button) {
 
 void WindowHandler::on_clear_static_clicked(Button*button) {
 	if (waveEngine.lock()) {
-		bool * vds = (bool *) waveEngine.getData(Fixity);
-		if (vds != nullptr) {
+		bool * pds = (bool *) waveEngine.getData(Fixity);
+		if (pds != nullptr) {
 			unsigned int sizesize = waveEngine.getSize();
 			sizesize *= sizesize;
 			for (unsigned int i = 0; i < sizesize; i++) {
-				vds[i] = false;
+				pds[i] = false;
 			}
 		}
 		waveEngine.unlock();
@@ -1369,18 +1375,21 @@ void WindowHandler::on_projects_save_selection_changed(
 }
 
 void WindowHandler::refresh_scene() {
+	unsigned int size = waveEngine.getSize();
+	unsigned int sizesize = size * size;
 	if (waveEngine.lock()) {
-		double * vdv = (double*) waveEngine.getData(
+#if defined(WAVE_ENGINE_SPRING_MODEL)
+		double * pdv = (double*) waveEngine.getData(
 				ParticleAttribute::Velocity);
-		double * vd = (double*) waveEngine.getData(ParticleAttribute::Height);
-		if (vd != nullptr && vdv != nullptr) {
-			unsigned int sizesize = waveEngine.getSize();
-			sizesize *= sizesize;
+		double * pd = (double*) waveEngine.getData(ParticleAttribute::Height);
+		if (pd != nullptr && pdv != nullptr) {
 			for (unsigned int i = 0; i < sizesize; i++) {
-				vd[i] = 0.0;
-				vdv[i] = 0.0;
+				pd[i] = 0;
+				pdv[i] = 0;
 			}
 		}
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 		waveEngine.unlock();
 	}
 }
@@ -1659,6 +1668,39 @@ void WindowHandler::deleteProject(TreeView*treeView, Dialog * transient) {
 				BUTTONS_OK, transient);
 }
 
+void WindowHandler::updateInfoLabel() {
+	if (pointer_in_drawing_area) {
+		unsigned int sz = waveEngine.getSize();
+		double locx = sz * (mouse_loc.x - pool.x) / pool.width;
+		double locy = sz * (mouse_loc.y - pool.y) / pool.height;
+		if (locx >= 0 && locx < sz && locy >= 0 && locy < sz) {
+			char info[256];
+			double mass = 0, loss = 0;
+			int static_particle = 0;
+			double height = 0;
+			if (waveEngine.lock()) {
+				unsigned int index = (int) locx + (int) locy * sz;
+				mass =
+						((double_t*) waveEngine.getData(ParticleAttribute::Mass))[index];
+				static_particle = ((uint8_t*) waveEngine.getData(
+						ParticleAttribute::Fixity))[index];
+				loss =
+						((double_t*) waveEngine.getData(ParticleAttribute::Loss))[index];
+				height = ((double_t*) waveEngine.getData(
+						ParticleAttribute::Height))[index];
+				waveEngine.unlock();
+				sprintf(info,
+						"x = %d\ty = %d\tmass = %f\tloss = %f\theight = %f\tstatic = %d",
+						(int) locx, (int) locy, mass, loss, height,
+						static_particle);
+				label_info->set_text(info);
+			}
+		}
+		return;
+	}
+	label_info->set_text("");
+}
+
 void WindowHandler::renderCallback(uint8_t * bitmap_data,
 		unsigned long data_length, void * extra_data) {
 	WindowHandler * windowHandler = (WindowHandler *) extra_data;
@@ -1829,6 +1871,7 @@ bool WindowHandler::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
 void WindowHandler::on_notification_from_render_thread() {
 
 	drawingarea_main->get_window()->invalidate(false);
+	updateInfoLabel();
 }
 
 WindowHandler::~WindowHandler() {

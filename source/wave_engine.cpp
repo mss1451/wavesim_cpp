@@ -3,17 +3,6 @@
 namespace WaveSimulation {
 
 WaveEngine::WaveEngine() {
-
-	vd = (double_t *) calloc(sizeof(double_t), sizesize);
-	vdv = (double_t *) calloc(sizeof(double_t), sizesize);
-	vd_static = (uint8_t *) calloc(sizeof(uint8_t), sizesize);
-	vdl = (double_t *) calloc(sizeof(double_t), sizesize);
-	vdm = (double_t *) calloc(sizeof(double_t), sizesize);
-	bitmap_data = (uint8_t *) calloc(sizeof(uint8_t), sizesize * 3);
-
-	for (unsigned int i = 0; i < sizesize; i++)
-		vdm[i] = 1.0;
-
 	ctDone = (bool *) calloc(sizeof(bool), MAX_NUMBER_OF_THREADS);
 	coThreads = (std::thread *) calloc(sizeof(std::thread),
 	MAX_NUMBER_OF_THREADS);
@@ -80,12 +69,16 @@ WaveEngine::~WaveEngine() {
 
 	free(mEndMutex);
 	free(mEndCond);
-
-	free(vd);
-	free(vdv);
-	free(vdl);
-	free(vdm);
-	free(vd_static);
+#if defined(WAVE_ENGINE_SPRING_MODEL)
+	free(pd);
+	free(pd_previous);
+	free(pdv);
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
+	free(pdl);
+	free(pdm);
+	free(pd_static);
+	free(pd_location_info);
 	free(bitmap_data);
 
 	free(ctDone);
@@ -105,18 +98,18 @@ WaveEngine::~WaveEngine() {
 	free(osc_location1_p);
 	free(osc_location2_p);
 }
+/*
+ double ts_to_ms(timespec ts) {
+ return (ts.tv_sec) * (double) 1e3 + (ts.tv_nsec) / (double) 1e6;
+ }
 
-double ts_to_ms(timespec ts) {
-	return (ts.tv_sec) * (double) 1e3 + (ts.tv_nsec) / (double) 1e6;
-}
-
-struct timespec ms_to_ts(double ms) {
-	struct timespec ts;
-	ts.tv_sec = (unsigned long) (ms / 1e3);
-	ts.tv_nsec = (unsigned long) (fmod(ms, 1000) * 1e6);
-	return ts;
-}
-
+ struct timespec ms_to_ts(double ms) {
+ struct timespec ts;
+ ts.tv_sec = (unsigned long) (ms / 1e3);
+ ts.tv_nsec = (unsigned long) (fmod(ms, 1000) * 1e6);
+ return ts;
+ }
+ */
 void WaveEngine::sendOrderToCT(coThreadMission order) {
 	ctMission = order;
 	for (unsigned int i = 0; i < numOfThreads; i++) {
@@ -146,42 +139,73 @@ void WaveEngine::waitForCT() {
 void * WaveEngine::MainThreadFunc(void * data) {
 	WaveEngine * waveEngine = (WaveEngine *) data;
 
+	// It is challenging to be accurate with the limiter at high speed calculations. If we use thread.sleep() function,
+	// number of iterations per second (IPS) will be quite lower than the one specified for the limiter at high speeds.
+	// That is because, the sleep times are not perfect and the program doesn't always get enough CPU power.
+	// So we take another approach. We calculate the number of the calculations that should have been done since the epoch
+	// by checking the current time-stamp and decide if the main thread should yield or do another iteration. That way, the
+	// calculation periods will not be always homogeneous and there will be bursting problem but at least the requested
+	// number of calculations will be provided.
+
 	//struct timespec time_current, time_log_previous, time_start;
-	std::chrono::steady_clock::time_point time_current, time_log_previous, time_start;
-	time_start = time_log_previous = time_current =
+	std::chrono::steady_clock::time_point time_previous, time_current,
+			time_log_previous;
+	time_previous = time_log_previous = time_current =
 			std::chrono::steady_clock::now();
+	time_previous = time_current - std::chrono::seconds(1); // Make sure that a new session starts first.
 	double numOfCalcs = 0; // For statistics, how many calculations have been done so far?
 	double numOfPaints = 0; // For statistics, how many paintings have been done so far?
-	unsigned int calcNeeded = 0; // How many calculations should have been done since beginning?
-	unsigned int paintNeeded = 0; // How many paintings should have been done since beginning?
+	unsigned int calcNeeded = 0; // How many calculations should have been done since epoch?
+	unsigned int paintNeeded = 0; // How many paintings should have been done since epoch?
 	while (!waveEngine->disposing) {
 
 		while (waveEngine->work_now) {
 
+			// Reset the counters every second. If calcDone can't keep up with the calcNeeded for some reason (lag, etc.)
+			// and the difference between them is too big, then the program will ignore the limiter for a long time,
+			// trying to reach the calcNeeded (too long bursts). With this session thing, the program will ignore the limiter
+			// at most for a second.
+			time_current = std::chrono::steady_clock::now();
+			if (std::chrono::duration_cast<std::chrono::duration<double>>(
+					time_current - time_previous).count() > 1.0) {
+				// Starting a new session.
+				time_previous = time_current;
+				calcNeeded = (unsigned int) (std::chrono::duration_cast<
+						std::chrono::duration<double>>(
+						time_current.time_since_epoch()).count()
+						* waveEngine->IPS);
+				paintNeeded = (unsigned int) (std::chrono::duration_cast<
+						std::chrono::duration<double>>(
+						time_current.time_since_epoch()).count()
+						* waveEngine->FPS);
+				waveEngine->calcDone = calcNeeded;
+				waveEngine->paintDone = paintNeeded;
+			}
 			if (waveEngine->work_now && waveEngine->calculationEnabled) {
 				time_current = std::chrono::steady_clock::now();
 				if ((waveEngine->IPS == 0
 						|| (calcNeeded =
-								(unsigned int) (
-										std::chrono::duration_cast<std::chrono::duration<double>>(time_current - time_start).count()
-										*  waveEngine->IPS))
+								(unsigned int) (std::chrono::duration_cast<
+										std::chrono::duration<double>>(
+										time_current.time_since_epoch()).count()
+										* waveEngine->IPS))
 								> waveEngine->calcDone)) {
 					waveEngine->mutex.lock();
+					// Prepare temporary variables for multi-threaded operation.
+					// With the help of these variables, we avoid multiple for-loops.
+					memcpy(waveEngine->pd_previous, waveEngine->pd,
+							sizeof(double_t) * waveEngine->sizesize);
+					waveEngine->average_height = 0;
+#if defined(WAVE_ENGINE_SPRING_MODEL)
 					waveEngine->sendOrderToCT(CalculateForces);
-
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 					waveEngine->waitForCT();
+					waveEngine->average_height /= waveEngine->sizesized;
 
-					waveEngine->sendOrderToCT(MoveParticles);
-
-					waveEngine->waitForCT();
-
-					if (waveEngine->shifting)
-						waveEngine->shiftToOrigin();
 					numOfCalcs++;
 					waveEngine->calcDone++;
 					waveEngine->calcCounter++;
-					if (calcNeeded > waveEngine->calcDone + 1)
-						waveEngine->calcDone = calcNeeded - 1;
 					waveEngine->mutex.unlock();
 
 				}
@@ -192,8 +216,9 @@ void * WaveEngine::MainThreadFunc(void * data) {
 				time_current = std::chrono::steady_clock::now();
 				if (waveEngine->FPS == 0
 						|| (paintNeeded =
-								(unsigned int) (std::chrono::duration_cast<std::chrono::duration<double>>(
-										time_current - time_start).count()
+								(unsigned int) (std::chrono::duration_cast<
+										std::chrono::duration<double>>(
+										time_current.time_since_epoch()).count()
 										* waveEngine->FPS))
 								> waveEngine->paintDone) {
 					waveEngine->mutex.lock();
@@ -203,8 +228,6 @@ void * WaveEngine::MainThreadFunc(void * data) {
 
 					numOfPaints++;
 					waveEngine->paintDone++;
-					if (paintNeeded > waveEngine->paintDone + 1)
-						waveEngine->paintDone = paintNeeded - 1;
 					waveEngine->mutex.unlock();
 
 					if (waveEngine->renderCallback != NULL)
@@ -218,7 +241,8 @@ void * WaveEngine::MainThreadFunc(void * data) {
 
 			if (waveEngine->work_now) {
 				time_current = std::chrono::steady_clock::now();
-				if (std::chrono::duration_cast<std::chrono::duration<double>>(time_current - time_log_previous).count()
+				if (std::chrono::duration_cast<std::chrono::duration<double>>(
+						time_current - time_log_previous).count()
 						>= waveEngine->performanceLogInterval / 1000.0) {
 					time_log_previous = std::chrono::steady_clock::now();
 					double perf_interval =
@@ -423,7 +447,9 @@ double WaveEngine::getFramesPerSecond() {
 void WaveEngine::setFramesPerSecond(double framesPerSecond) {
 	mutex.lock();
 	this->FPS = clamp(framesPerSecond, 0, framesPerSecond);
-	paintDone = 0;
+	paintDone = (unsigned int) (std::chrono::duration_cast<
+			std::chrono::duration<double>>(
+			std::chrono::steady_clock::now().time_since_epoch()).count() * FPS);
 	mutex.unlock();
 }
 
@@ -434,7 +460,9 @@ double WaveEngine::getIterationsPerSecond() {
 void WaveEngine::setIterationsPerSecond(double iterationsPerSecond) {
 	mutex.lock();
 	this->IPS = clamp(iterationsPerSecond, 0, iterationsPerSecond);
-	calcDone = 0;
+	calcDone = (unsigned int) (std::chrono::duration_cast<
+			std::chrono::duration<double>>(
+			std::chrono::steady_clock::now().time_since_epoch()).count() * IPS);
 	mutex.unlock();
 }
 
@@ -685,15 +713,18 @@ void * WaveEngine::getData(ParticleAttribute particleAttribute) {
 		return nullptr;
 	switch (particleAttribute) {
 	case Fixity:
-		return vd_static;
+		return pd_static;
 	case Loss:
-		return vdl;
+		return pdl;
+#if defined(WAVE_ENGINE_SPRING_MODEL)
 	case Height:
-		return vd;
-	case Mass:
-		return vdm;
+		return pd;
 	case Velocity:
-		return vdv;
+		return pdv;
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
+	case Mass:
+		return pdm;
 	default:
 		return nullptr;
 	}
@@ -714,106 +745,107 @@ void WaveEngine::stop() {
 bool WaveEngine::isWorking() {
 	return work_now;
 }
-
+#if defined(WAVE_ENGINE_SPRING_MODEL)
 bool WaveEngine::calculateForces(const unsigned int firstIndex,
 		const unsigned int count) {
-
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 	// Check if the parameters are valid.
 	if (firstIndex + count > sizesize || count < 1)
 		return false;
 
 	const unsigned int fplusc = firstIndex + count;
+	double local_average_height = 0;
 	for (unsigned int index = firstIndex; index < fplusc; index++) {
 		// If this is a static particle, it will not move at all. Continue with the next particle.
-		if (vd_static[index]) {
-			vd[index] = 0;
+		if (pd_static[index]) {
+#if defined(WAVE_ENGINE_SPRING_MODEL)
+			pd[index] = 0;
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 			continue;
 		}
 
-		// We will find out the average height of the 8 neighbor particles.
-		// So that we will know where the current particle will be attracted to.
-		// "heights" is the sum of all the height values of neighbor particles.
+#if defined(WAVE_ENGINE_SPRING_MODEL)
 
-		// Don't know why double types result in faster calculations at this point.
-		// Maybe CPU and XMM registers hold more data together so less RAM access takes place?
-		double heights = 0.0;
-		const double iplus1modsz = (index + 1) % size;
-		const double imodsz = index % size;
-		// "num_of_part" is the number of particles which contributed to the "heights".
-		double num_of_parts = 0.0;
+		// Think that each particle is connected to its 4 neighbor particles (north,south,east,west).
+		// The connection is provided by a spring whose constant is k = 1
+		// The particles can only move up and down meaning that only their altitude/height can change.
+		// Find forces exerted by springs. F = -kx in this case. x is the distance to the rest point of that spring.
+		// Springs are connected in parallel. So forces are simply added.
+		// After finding the total force, from F = ma -> F/m = a, find the acceleration, and add it to the velocity.
 
-		bool up_exists = false, left_exists = false, right_exists = false;
+		double heights = 0;
+		double num_of_parts = 0;
 
-		if (index >= size && !vd_static[index - size]) {
-			up_exists = true;
-			heights += vd[index - size];
+		if (pd_location_info[index].top && !pd_static[index - size]) {
+			heights += pd_previous[index - size];
 			num_of_parts++;
 		}
 
-		if (iplus1modsz != 0 && !vd_static[index + 1]) {
-			right_exists = true;
-			heights += vd[index + 1];
+		if (pd_location_info[index].right && !pd_static[index + 1]) {
+			heights += pd_previous[index + 1];
 			num_of_parts++;
-			if (up_exists && !vd_static[index - size + 1]) {
-				heights += vd[index - size + 1];
-				num_of_parts++;
-			}
 		}
 
-		if (imodsz != 0 && !vd_static[index - 1]) {
-			left_exists = true;
-			heights += vd[index - 1];
+		if (pd_location_info[index].left && !pd_static[index - 1]) {
+			heights += pd_previous[index - 1];
 			num_of_parts++;
-			if (up_exists && !vd_static[index - size - 1]) {
-				heights += vd[index - size - 1];
-				num_of_parts++;
-			}
 		}
 
-		if (index < sizesize - size && !vd_static[index + size]) {
-			heights += vd[index + size];
+		if (pd_location_info[index].bottom && !pd_static[index + size]) {
+			heights += pd_previous[index + size];
 			num_of_parts++;
-			if (left_exists && !vd_static[index + size - 1]) {
-				heights += vd[index + size - 1];
-				num_of_parts++;
-			}
-			if (right_exists && !vd_static[index + size + 1]) {
-				heights += vd[index + size + 1];
-				num_of_parts++;
-			}
 		}
-
-		double acceleration = 0.0;
-		double height_difference = 0.0;
 
 		if (num_of_parts != 0) {
-			heights /= num_of_parts;
-			height_difference = vd[index] - heights;
-			acceleration = -height_difference / vdm[index];
-		}
+			double average_height = heights / num_of_parts;
+			double velocity_gain = (heights - pd_previous[index] * num_of_parts)
+					/ pdm[index];
 
-		// Acceleration feeds velocity.
-		vdv[index] += acceleration;
+			// Limit velocity to prevent chaos. When the simulation resolution is low enough,
+			// a particle can gain a velocity which would carry it to such a point in single iteration
+			// that it would be impossible if the simulation resolution would be higher. If not prevented,
+			// the particle will vastly increase its distance from the equilibrium point.
+			// This is a positive feedback case resulting in violation of conservation of energy and, ultimately, the chaos.
+			if (velocity_gain > 0)
+				pd[index] += pdv[index] += clamp(velocity_gain, velocity_gain,
+						(average_height - pd_previous[index]) * 0.9);
+			else
+				pd[index] += pdv[index] += clamp(velocity_gain,
+						(average_height - pd_previous[index]) * 0.9,
+						velocity_gain);
+		}
 
 		// Loss takes place.
 
-		// Reduce the kinetic energy. The kinetic energy is 0.5 times mass times velocity squared.
-		// With this equation, we can derive the velocity for the reduced kinetic energy.
-		double kinetic_energy = (0.5 * vdm[index] * pow(vdv[index], 2));
-		// Multiply the energy with one minus loss ratio and find the velocity for that kinetic energy.
-		// Leaving the velocity on the left side results in the following.
-		vdv[index] = sqrt(2 * kinetic_energy * (1.0 - vdl[index]) / vdm[index])
-				* sgn(vdv[index]);
+		if (pdl[index] > 0.0) {
+			// Reduce the kinetic energy. The kinetic energy is 0.5 times mass times velocity squared.
+			// With this equation, we can derive the velocity for the reduced kinetic energy.
+			double kinetic_energy = (0.5 * pdm[index] * pow(pdv[index], 2));
+			// Multiply the energy with one minus loss ratio and find the velocity for that kinetic energy.
+			// Leaving the velocity on the left side results in the following.
+			pdv[index] = sqrt(
+					2 * kinetic_energy * (1.0 - pdl[index]) / pdm[index])
+					* sgn(pdv[index]);
 
-		// Reduce the potential energy. The potential energy for this model is 0.5 times height difference squared.
-		// With this equation, we can derive the height for the reduced potential energy.
-		double potential_energy = (0.5 * pow(height_difference, 2.0));
-		// Multiply the energy with one minus loss ratio and find the height for that potential energy.
-		// Leaving the height difference on the left side results in the following.
-		vd[index] += sqrt(2 * potential_energy * (1.0 - vdl[index]))
-				* sgn(height_difference) - height_difference;
+			// Reducing potential energy triggers chaos?
+			/*double height_difference = pd_previous[index]
+			 - heights / num_of_parts; // Current height minus equilibrium height.
+			 // Reduce the potential energy. The potential energy for this model is 0.5 times height difference squared.
+			 // With this equation, we can derive the height for the reduced potential energy.
+			 double potential_energy = (0.5 * pow(height_difference, 2.0));
+			 // Multiply the energy with one minus loss ratio and find the height for that potential energy.
+			 // Leaving the height difference on the left side results in the following.
+			 pd[index] += sqrt(2 * potential_energy * (1.0 - pdl[index]))
+			 * sgn(height_difference) - height_difference;*/
+		}
+
+		local_average_height += pd[index];
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 	}
-
+	average_height += local_average_height;
 	// Process oscillators
 	for (unsigned int i = 0; i < MAX_NUMBER_OF_OSCILLATORS; i++) {
 		if (osc_active[i]) {
@@ -826,13 +858,19 @@ bool WaveEngine::calculateForces(const unsigned int firstIndex,
 
 			switch (osc_source[i]) {
 			case PointSource:
-				vd[osc_locations[i][0]] = osc_height;
-				vdv[osc_locations[i][0]] = 0;
+#if defined(WAVE_ENGINE_SPRING_MODEL)
+				average_height += pd[osc_locations[i][0]] = osc_height;
+				pdv[osc_locations[i][0]] = 0;
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 				break;
 			case LineSource:
 				for (unsigned int j = 0; j < osc_locations_size[i]; j++) {
-					vd[osc_locations[i][j]] = osc_height;
-					vdv[osc_locations[i][j]] = 0;
+#if defined(WAVE_ENGINE_SPRING_MODEL)
+					average_height += pd[osc_locations[i][j]] = osc_height;
+					pdv[osc_locations[i][j]] = 0;
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 				}
 				break;
 			case MovingPointSource:
@@ -845,8 +883,11 @@ bool WaveEngine::calculateForces(const unsigned int firstIndex,
 								+ ratio_1 * osc_location2_p[i].y);
 				unsigned int cur_index = (unsigned int) cur_point.x
 						+ size * (unsigned int) cur_point.y;
-				vd[cur_index] = osc_height;
-				vdv[cur_index] = 0;
+#if defined(WAVE_ENGINE_SPRING_MODEL)
+				average_height += pd[cur_index] = osc_height;
+				pdv[cur_index] = 0;
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 				break;
 			}
 
@@ -855,50 +896,15 @@ bool WaveEngine::calculateForces(const unsigned int firstIndex,
 	return true;
 }
 
-void WaveEngine::moveParticles(const unsigned int firstIndex,
-		const unsigned int count) {
-	unsigned int fplusc = firstIndex + count;
-	// Check if the parameters are valid
-	if (count < 1 || firstIndex > sizesize || fplusc > sizesize)
-		return;
-
-	for (unsigned int index = firstIndex; index < fplusc; index++) {
-
-		/*if (vd[index] + vdv[index] > 1.0)
-		 vd[index] = 1.0;
-		 else if (vd[index] + vdv[index] <= 1.0
-		 && vd[index] + vdv[index] >= -1.0)
-		 vd[index] += vdv[index]; // Velocity feeds height.
-		 else
-		 vd[index] = -1.0;*/
-		vd[index] += vdv[index]; // Velocity feeds height.
-	}
-}
-
-void WaveEngine::shiftToOrigin() {
-	unsigned int i = 0;
-	double total_height = 0; // This will be used to shift the height center of the whole particle system to the origin.
-	// Sum up all the height values so we will find the average height of the system.
-	for (i = 0; i < sizesize; i++)	//for (double height : vd)
-		total_height += vd[i];
-
-	// Origin height is zero. So "shifting" is the distance between the system average height and the origin.
-	double shifting = -total_height / sizesized;
-
-	// Here is the last step on shifting the whole system to the origin point.
-	for (i = 0; i < sizesize; i++)
-		vd[i] += shifting;
-}
-
 void WaveEngine::setLossRatio() {
 	if (absorberEnabled) {
-		// We will fill "vdl" array with "loss" then we will deal with elements near to window boundaries.
+		// We will fill "pdl" array with "loss" then we will deal with elements near to window boundaries.
 
 		// Since we want the loss to increase towards the edges, "max_loss" can't be smaller than "loss".
 		if (max_loss < loss) {
-			// The only thing to do is to fill "vdf" array with "loss" in this case.
+			// The only thing to do is to fill "pdf" array with "loss" in this case.
 			for (unsigned int i = 0; i < sizesize; i++)
-				vdl[i] = loss;
+				pdl[i] = loss;
 			return;
 		}
 
@@ -912,16 +918,16 @@ void WaveEngine::setLossRatio() {
 		// This one stores the current loss.
 		double cur = max_loss;
 
-		// First, we fill "vdl" array with "loss".
+		// First, we fill "pdl" array with "loss".
 		for (unsigned int i = 0; i < sizesize - 1; i++)
-			vdl[i] = loss;
+			pdl[i] = loss;
 
 		// This loop sets up the loss values for the top.
 		for (unsigned int off = 0; off <= absorb_offset; off++) {
 			// Process each row/column from the edge to the offset.
 			for (unsigned int x = off; x < size - off; x++) {
 				// Process each loss element in the current row/column
-				vdl[x + off * size] = cur;
+				pdl[x + off * size] = cur;
 			}
 			cur -= dec;
 		}
@@ -932,7 +938,7 @@ void WaveEngine::setLossRatio() {
 		for (unsigned int off = 0; off <= absorb_offset; off++) {
 			for (unsigned int x = absorb_offset - off;
 					x < size - (absorb_offset - off); x++) {
-				vdl[x + off * size + size * (size - absorb_offset - 1)] = cur;
+				pdl[x + off * size + size * (size - absorb_offset - 1)] = cur;
 			}
 			cur += dec;
 		}
@@ -943,7 +949,7 @@ void WaveEngine::setLossRatio() {
 		for (unsigned int off = 0; off <= absorb_offset; off++) {
 			for (unsigned int x = absorb_offset - off;
 					x < size - (absorb_offset - off); x++) {
-				vdl[x * size + (absorb_offset - off)] = cur;
+				pdl[x * size + (absorb_offset - off)] = cur;
 			}
 			cur += dec;
 		}
@@ -954,14 +960,14 @@ void WaveEngine::setLossRatio() {
 		for (unsigned int off = 0; off <= absorb_offset; off++) {
 			for (unsigned int x = absorb_offset - off;
 					x < size - (absorb_offset - off); x++) {
-				vdl[x * size + off + size - absorb_offset - 1] = cur;
+				pdl[x * size + off + size - absorb_offset - 1] = cur;
 			}
 			cur += dec;
 		}
 	} else {
-		// The only thing to do is to fill "vdl" array with "loss" in this case.
+		// The only thing to do is to fill "pdl" array with "loss" in this case.
 		for (unsigned int i = 0; i < sizesize; i++)
-			vdl[i] = loss;
+			pdl[i] = loss;
 	}
 }
 
@@ -975,7 +981,7 @@ bool WaveEngine::paintBitmap(const unsigned int firstIndex,
 	for (unsigned int index = firstIndex; index < firstIndex + count; index++) {
 		if (!massMap) {
 
-			if (vd_static[index]) {
+			if (pd_static[index]) {
 
 				rgbdata[index * 3] = staticColor.r;
 				rgbdata[index * 3 + 1] = staticColor.g;
@@ -983,9 +989,12 @@ bool WaveEngine::paintBitmap(const unsigned int firstIndex,
 
 			} else {
 				// This value is the 'brightness' of the height.
-
+#if defined(WAVE_ENGINE_SPRING_MODEL)
+				double pdx = pd[index] - (shifting ? average_height : 0);
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 				if (extremeContrastEnabled) {
-					if (vd[index] > 0) {
+					if (pdx > 0) {
 
 						rgbdata[index * 3] = crestColor.r;
 						rgbdata[index * 3 + 1] = crestColor.g;
@@ -993,13 +1002,13 @@ bool WaveEngine::paintBitmap(const unsigned int firstIndex,
 
 					}
 
-					else if (vd[index] < 0) {
+					else if (pdx < 0) {
 
 						rgbdata[index * 3] = troughColor.r;
 						rgbdata[index * 3 + 1] = troughColor.g;
 						rgbdata[index * 3 + 2] = troughColor.b;
 
-					} else if (vd[index] == 0) {
+					} else if (pdx == 0) {
 
 						rgbdata[index * 3] = (uint8_t) ((crestColor.r
 								+ troughColor.r) / 2.0);
@@ -1011,9 +1020,8 @@ bool WaveEngine::paintBitmap(const unsigned int firstIndex,
 					}
 
 				} else {
-					double bright =
-							(clamp(vd[index] * amplitudeMultiplier, -1.0, 1.0)
-									+ 1.0) * 127.0;
+					double bright = (clamp(pdx * amplitudeMultiplier, -1.0, 1.0)
+							+ 1.0) * 127.0;
 
 					double brightr1 = bright / 255.0;
 					double brightr2 = 1.0 - brightr1;
@@ -1051,7 +1059,7 @@ bool WaveEngine::paintBitmap(const unsigned int firstIndex,
 				return false;
 			}
 			uint16_t color = round(
-					(clamp(vdm[index], massMapRangeLow, massMapRangeHigh)
+					(clamp(pdm[index], massMapRangeLow, massMapRangeHigh)
 							- massMapRangeLow) * colors / massrange);
 			if (color < 128) {
 				rgbdata[index * 3] = 0;
@@ -1083,54 +1091,104 @@ void WaveEngine::setPool(unsigned int oldsize) {
 
 	unsigned int oldsizesize = oldsize * oldsize;
 
-	free(vd);
-	vd = (double_t *) calloc(sizeof(double_t), sizesize);
+#if defined(WAVE_ENGINE_SPRING_MODEL)
+	free(pd);
+	pd = (double_t *) calloc(sizeof(double_t), sizesize);
 
-	free(vdv);
-	vdv = (double_t *) calloc(sizeof(double_t), sizesize);
+	free(pd_previous);
+	pd_previous = (double_t *) calloc(sizeof(double_t), sizesize);
 
-	uint8_t * vd_static_old = (uint8_t *) calloc(sizeof(uint8_t), oldsizesize);
-	memcpy(vd_static_old, vd_static, sizeof(vd_static_old[0]) * oldsizesize);
+	free(pdv);
+	pdv = (double_t *) calloc(sizeof(double_t), sizesize);
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
 
-	free(vd_static);
-	vd_static = (uint8_t *) calloc(sizeof(uint8_t), sizesize);
+	uint8_t * pd_static_old = 0;
+	bool pd_static_null = !pd_static;
+	if (!pd_static_null) {
+		pd_static_old = (uint8_t *) calloc(sizeof(uint8_t), oldsizesize);
+		memcpy(pd_static_old, pd_static,
+				sizeof(pd_static_old[0]) * oldsizesize);
+	}
 
-	free(vdl);
-	vdl = (double_t *) calloc(sizeof(double_t), sizesize);
+	free(pd_static);
+	pd_static = (uint8_t *) calloc(sizeof(uint8_t), sizesize);
 
-	double * vdm_old = (double *) calloc(sizeof(double), oldsizesize);
-	memcpy(vdm_old, vdm, sizeof(vdm_old[0]) * oldsizesize);
+	free(pdl);
+	pdl = (double_t *) calloc(sizeof(double_t), sizesize);
 
-	free(vdm);
-	vdm = (double_t *) calloc(sizeof(double_t), sizesize);
+	double * pdm_old = 0;
+	bool pdm_null = !pdm;
+	if (!pdm_null) {
+		pdm_old = (double *) calloc(sizeof(double), oldsizesize);
+		memcpy(pdm_old, pdm, sizeof(pdm_old[0]) * oldsizesize);
+	}
+
+	free(pdm);
+	pdm = (double_t *) calloc(sizeof(double_t), sizesize);
+
+	if (pdm_null)
+		for (unsigned int i = 0; i < sizesize; i++)
+			pdm[i] = 5.0;
 
 	free(bitmap_data);
 	bitmap_data = (uint8_t *) calloc(sizeof(uint8_t), sizesize * 3);
 
-	for (unsigned int i = 0; i < sizesize; i++)
-		vdm[i] = 1.0;
+	free(pd_location_info);
+	pd_location_info = (ParticleLocationInfo *) calloc(
+			sizeof(ParticleLocationInfo), sizesize);
 
-	// Resize static & mass map
+	for (unsigned int i = 0; i < sizesize; i++) {
+		const double iplus1modsz = (i + 1) % size;
+		const double imodsz = i % size;
 
-	double stepsize = (double) oldsize / size;
-	double stepsize_db2 = stepsize / 2;
-	for (unsigned int y = 0; y < size; y++) {
-		for (unsigned int x = 0; x < size; x++) {
-			vd_static[x + size * y] = vd_static_old[(unsigned int) floor(
-					(double) x * stepsize + stepsize_db2)
-					+ oldsize
-							* (unsigned int) floor(
-									(double) y * stepsize + stepsize_db2)];
-			vdm[x + size * y] = vdm_old[(unsigned int) floor(
-					(double) x * stepsize + stepsize_db2)
-					+ oldsize
-							* (unsigned int) floor(
-									(double) y * stepsize + stepsize_db2)];
-		}
+		if (i >= size)
+			pd_location_info[i].top = true;
+		if (iplus1modsz != 0)
+			pd_location_info[i].right = true;
+		if (imodsz != 0)
+			pd_location_info[i].left = true;
+		if (i < sizesize - size)
+			pd_location_info[i].bottom = true;
+
+		/*if (pd_location_info[i].top && pd_location_info[i].left
+		 && pd_location_info[i].right && pd_location_info[i].bottom)
+		 pd_location_info[i].num_of_neighbors = 8;
+		 else if (((pd_location_info[i].left || pd_location_info[i].right)
+		 && pd_location_info[i].top && pd_location_info[i].bottom)
+		 || ((pd_location_info[i].bottom || pd_location_info[i].top)
+		 && pd_location_info[i].right && pd_location_info[i].left))
+		 pd_location_info[i].num_of_neighbors = 5;
+		 else
+		 pd_location_info[i].num_of_neighbors = 3;*/
 	}
 
-	free(vd_static_old);
-	free(vdm_old);
+	// Resize static & mass map
+	if (!pd_static_null || !pdm_null) {
+		double stepsize = (double) oldsize / size;
+		double stepsize_db2 = stepsize / 2;
+		for (unsigned int y = 0; y < size; y++) {
+			for (unsigned int x = 0; x < size; x++) {
+				if (!pd_static_null)
+					pd_static[x + size * y] =
+							pd_static_old[(unsigned int) floor(
+									(double) x * stepsize + stepsize_db2)
+									+ oldsize
+											* (unsigned int) floor(
+													(double) y * stepsize
+															+ stepsize_db2)];
+				if (!pdm_null)
+					pdm[x + size * y] = pdm_old[(unsigned int) floor(
+							(double) x * stepsize + stepsize_db2)
+							+ oldsize
+									* (unsigned int) floor(
+											(double) y * stepsize
+													+ stepsize_db2)];
+			}
+		}
+	}
+	free(pd_static_old);
+	free(pdm_old);
 
 	// Re-locate oscillators
 	for (unsigned int i = 0; i < MAX_NUMBER_OF_OSCILLATORS; i++) {
@@ -1216,16 +1274,15 @@ void * WaveEngine::CoThreadFunc(void * data) {
 		signal_main = false;
 		waveEngine->mEndMutex[i].lock();
 		if (!waveEngine->ctDone[i]) {
+#if defined(WAVE_ENGINE_SPRING_MODEL)
 			if (waveEngine->ctMission == CalculateForces) {
 				waveEngine->calculateForces(waveEngine->ctStruct[i].firstIndex,
 						waveEngine->ctStruct[i].count);
 				signal_main = true;
-			} else if (waveEngine->ctMission == MoveParticles) {
-				waveEngine->moveParticles(waveEngine->ctStruct[i].firstIndex,
-						waveEngine->ctStruct[i].count);
-
-				signal_main = true;
-			} else if (waveEngine->ctMission == CalculateColors) {
+			}
+#elif defined(WAVE_ENGINE_X_MODEL)
+#endif
+			else if (waveEngine->ctMission == CalculateColors) {
 				waveEngine->paintBitmap(waveEngine->ctStruct[i].firstIndex,
 						waveEngine->ctStruct[i].count, waveEngine->bitmap_data);
 				signal_main = true;
@@ -1291,3 +1348,4 @@ void WaveEngine::setCoThreads(unsigned int oldNumOfThreads) {
 	}
 }
 }
+
