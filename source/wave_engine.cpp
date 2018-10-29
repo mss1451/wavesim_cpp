@@ -810,10 +810,10 @@ bool WaveEngine::calculateForces(const unsigned int firstIndex,
 			// This is a positive feedback case resulting in violation of conservation of energy and, ultimately, the chaos.
 			if (velocity_gain > 0)
 				pd[index] += pdv[index] += clamp(velocity_gain, velocity_gain,
-						(average_height - pd_previous[index]) * 0.9);
+						(average_height - pd_previous[index]) );
 			else
 				pd[index] += pdv[index] += clamp(velocity_gain,
-						(average_height - pd_previous[index]) * 0.9,
+						(average_height - pd_previous[index]) ,
 						velocity_gain);
 		}
 

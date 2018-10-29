@@ -1694,9 +1694,9 @@ void WindowHandler::updateInfoLabel() {
 						(int) locx, (int) locy, mass, loss, height,
 						static_particle);
 				label_info->set_text(info);
+				return;
 			}
 		}
-		return;
 	}
 	label_info->set_text("");
 }
