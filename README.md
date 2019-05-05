@@ -1,5 +1,5 @@
 # Wave Simulator with C++
-This is an example wave simulation engine written in C++. The engine comes with a native Linux application which uses [gtkmm](https://www.gtkmm.org/) and [cairomm](https://www.cairographics.org/cairomm/). For more details on what this project is about, see its [Code Project Article](https://www.codeproject.com/Articles/1259631/Wave-Simulator-with-Java-and-Cplusplus). The java version is available [here](https://github.com/mss1451/wavesim_java).
+This is an example wave simulation engine written in C++. The engine comes with a native Linux application which uses [gtkmm](https://www.gtkmm.org/) and [cairomm](https://www.cairographics.org/cairomm/). The java version is available [here](https://github.com/mss1451/wavesim_java).
 ## Prerequisites
 This is an Eclipse CDT project. The following development packages are specificially required.
 1. libgtkmm-3.0-dev
@@ -9,7 +9,7 @@ This is an Eclipse CDT project. The following development packages are specifici
 6. libatkmm-1.6-dev
 7. libgdk-pixbuf2.0-dev
 
-It is also required to install the core packages such as libgtk-3-dev. You need **pkg-config** installed for the compiler to resolve the include and library directories.
+It is also required to install the core packages such as libgtk-3-dev.
 ## Building
 In a terminal, enter either the **Release** or **Debug** directories depending on which version of the program you want to build. Let's build a **Release** version.
 
