@@ -1821,19 +1821,19 @@ bool WindowHandler::on_draw(const Cairo::RefPtr<Cairo::Context>& cr) {
 
 		free(preview_path);
 
-		// Cursor
-		cr->save();
+		// Cursor (Caused segmentation fault on a few platforms)
+		/*cr->save();
 		cr->rectangle(0, 0, pool.x, pool.height);
 		cr->rectangle(pool.x + pool.width, 0, pool.x, pool.height);
 		cr->clip();
 		RefPtr<Gdk::Pixbuf> crosshair = cursorCrosshair->get_image();
 		cr->translate(mouse_loc.x - crosshair->get_width() / 2,
 				mouse_loc.y - crosshair->get_height() / 2);
-
+		
 		Gdk::Cairo::set_source_pixbuf(cr, crosshair, 0, 0);
 		cr->paint();
 		cr->restore();
-
+		*/
 	}
 
 	if (switch_show_oscs->get_active()) {
