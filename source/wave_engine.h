@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <vector>
 #include <memory.h>
+#include <sys/sysinfo.h>
 
 #define clamp(x, low, high)  (((x) > (high)) ? (high) : (((x) < (low)) ? (low) : (x)))
 #define MAX_NUMBER_OF_THREADS 32 // Might also be hard-coded in UI
@@ -35,19 +36,13 @@ public:
 	bool top, left, right, bottom;
 };
 
-#if defined(WAVE_ENGINE_SPRING_MODEL)
 enum ParticleAttribute {
 	Height = 1, Velocity = 2, Loss = 4, Mass = 8, Fixity = 16
 };
-#elif defined(WAVE_ENGINE_X_MODEL)
-#endif
 
-#if defined(WAVE_ENGINE_SPRING_MODEL)
 enum coThreadMission {
 	Pause = 1, Destroy = 2, CalculateForces = 4, CalculateColors = 8
 };
-#elif defined(WAVE_ENGINE_X_MODEL)
-#endif
 
 enum OscillatorSource {
 	PointSource, LineSource, MovingPointSource
@@ -140,10 +135,8 @@ public:
 
 struct coThreadStruct {
 public:
-	int tIndex;
-	int firstIndex;
-	int count;
-
+	int tIndex, firstIndex, count;
+	bool busy = false;
 	coThreadStruct(int xtIndex, int xfirstIndex, int xcount) {
 		tIndex = xtIndex;
 		firstIndex = xfirstIndex;
@@ -181,13 +174,10 @@ protected:
 
 	// pd -> particle data
 
-#if defined(WAVE_ENGINE_SPRING_MODEL)
 	double_t * pd = 0; // Height map
 	double_t * pd_previous = 0; // Previous height map for calculations
 	double_t average_height = 0; // Average height of the height map for shifting
 	double_t * pdv = 0; // Velocity map
-#elif defined(WAVE_ENGINE_X_MODEL)
-#endif
 	double_t * pdl = 0; // Loss map
 	double_t * pdm = 0; // Mass map
 	double_t loss = 0.0; // Reduces mechanical energy (potential + kinetic) by the (100 * loss) percent.
@@ -215,14 +205,11 @@ protected:
 	std::thread MainT; // Main thread that will generate and run 'numOfThreads' co-threads.
 	std::thread * coThreads; // The engine will benefit from all of the cores of CPU efficiently with these co-threads.
 	std::mutex mutex; // For properties and general access restrictions.
-	std::mutex * mEndMutex; // 'I have completed my mission' signal from co-thread.
-	std::condition_variable * mEndCond; // 'I have completed my mission' signal from co-thread.
-	std::mutex mStartMutex; // 'You have new mission' signal from main thread.
-	std::condition_variable mStartCond; // 'You have new mission' signal from main thread.
+	std::mutex * mCT; // Co-thread mutex
+	std::condition_variable * mCTC; // Co-thread condition
 	std::mutex mCout; // Prevent simultaneous calls to std::cout
 	coThreadMission ctMission = Pause; // Defines the mission for each co-thread.
 	coThreadStruct * ctStruct; // Data argument for co-threads that define their working range.
-	bool * ctDone; // True if a co-thread's mission is complete.
 	bool renderEnabled = true; // False = Halt render callback including the painting calculations.
 	bool calculationEnabled = true; // False = Halt calculations.
 
@@ -383,9 +370,7 @@ public:
 	bool unlock();
 
 	// Gets the pointer to the data array corresponding to the specified particle attribute.\n
-	// Call lock before calling this otherwise null pointer will be returned.\n
-	// Do not attempt to read or write to the pointer given by this function after calling unlock.\n
-	// Doing so will most likely result in either access violation or inaccurate calculations.\n
+	// Call this method between lock() and unlock() methods to obtain consistent data.\n
 	// Do not specify multiple attributes.\n
 	// Returned data type is 'double' for everything except 'static' which is of 'bool' type.
 	void * getData(ParticleAttribute particleAttribute);
@@ -399,19 +384,16 @@ public:
 	bool isWorking();
 
 protected:
-	static void * CoThreadFunc(void * data);
+	static void CoThreadFunc(void * data);
 
-	static void * MainThreadFunc(void * data);
+	static void MainThreadFunc(void * data);
 
 	void sendOrderToCT(coThreadMission order);
 
 	void waitForCT();
 
-#if defined(WAVE_ENGINE_SPRING_MODEL)
 	bool calculateForces(const unsigned int firstIndex,
 			const unsigned int count);
-#elif defined(WAVE_ENGINE_X_MODEL)
-#endif
 
 	bool paintBitmap(const unsigned int firstIndex, const unsigned int count,
 			uint8_t *);
@@ -423,6 +405,8 @@ protected:
 	void setPool(unsigned int oldsize);
 
 	void updateOscLocIndices(unsigned int oscillatorId);
+
+	void mutexedCout(const char * msg);
 
 	// Misc
 	template<typename T> int sgn(T val) {
