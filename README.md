@@ -1,6 +1,6 @@
 # Wave Simulator with C++
 This is an example wave simulation engine written in C++. The engine comes with
-a native Linux application which uses [gtkmm] and [cairomm]. A java version is
+a native Linux application which uses [gtkmm] and [cairomm]. A [java version] is
 also available.
 
 [gtkmm]: https://www.gtkmm.org/
