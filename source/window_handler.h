@@ -1,18 +1,18 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include "INIReader.h"
-#include "project_handler.h"
-#include "wave_engine.h"
-#include <cairomm/context.h>
-#include <gdk/gdkkeysyms.h>
-#include <gdkmm/general.h>
-#include <gdkmm/window.h>
+#include <sys/sysinfo.h>
 #include <gtkmm.h>
 #include <gtkmm/window.h>
-#include <iostream>
+#include <gdkmm/window.h>
+#include <cairomm/context.h>
+#include <gdkmm/general.h>
+#include <gdk/gdkkeysyms.h>
 #include <math.h>
-#include <sys/sysinfo.h>
+#include <iostream>
+#include "wave_engine.h"
+#include "INIReader.h"
+#include "project_handler.h"
 
 using namespace Gtk;
 using namespace Glib;
